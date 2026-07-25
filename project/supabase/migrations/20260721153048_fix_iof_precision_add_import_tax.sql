@@ -1,7 +1,6 @@
 -- Increase IOF precision to 5 decimal places (was numeric(14,2))
 ALTER TABLE purchases
-  ALTER COLUMN iof TYPE numeric(18,5),
-  ALTER COLUMN iof_rebate TYPE numeric(18,5);
+  ALTER COLUMN iof TYPE numeric(18,5);
 
 -- Add import_tax column (fixed value in BRL, only for imports)
 DO $$ BEGIN

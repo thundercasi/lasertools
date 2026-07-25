@@ -6,7 +6,7 @@ import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone 
 const empty = {
   name: '', description: '', category: '', machine_model: '',
   condition: 'Novo', brand: '', stock_quantity: 0, unit_cost: 0,
-  unit_price: 0, min_stock: 0, purchase_date: '',
+  unit_price: 0, min_stock: 0,
 };
 
 const emptyPrice = {
@@ -77,7 +77,6 @@ export default function Parts() {
       unit_cost: Number(p.unit_cost) || 0,
       unit_price: Number(p.unit_price) || 0,
       min_stock: Number(p.min_stock) || 0,
-      purchase_date: p.purchase_date ?? '',
     });
     const { data: prices } = await supabase
       .from('competition_prices')
@@ -107,7 +106,6 @@ export default function Parts() {
       unit_cost: Number(form.unit_cost),
       unit_price: Number(form.unit_price),
       min_stock: Number(form.min_stock),
-      purchase_date: form.purchase_date || null,
     };
     let partId = editing?.id;
     let err;
@@ -241,7 +239,6 @@ export default function Parts() {
                   <th className="th text-right">Estoque</th>
                   <th className="th text-right">Custo</th>
                   <th className="th text-right">Preço</th>
-                  <th className="th">Compra</th>
                   <th className="th text-right">Ações</th>
                 </tr>
               </thead>
@@ -264,7 +261,6 @@ export default function Parts() {
                       </td>
                       <td className="td text-right text-slate-600">{BRL(p.unit_cost)}</td>
                       <td className="td text-right font-semibold text-slate-900">{BRL(p.unit_price)}</td>
-                      <td className="td text-slate-500">{formatDate(p.purchase_date)}</td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
                           <button className="icon-btn" onClick={() => openEdit(p)}><Pencil size={15} /></button>
@@ -313,12 +309,6 @@ export default function Parts() {
                 </div>
               );
             })()}
-            <div className="grid sm:grid-cols-3 gap-4">
-              <Field label="Data da compra">
-                <input type="date" className={inputCls} value={form.purchase_date} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} />
-              </Field>
-            </div>
-
             {/* Competitor prices */}
             {editing && (
               <div className="border-t border-slate-200 pt-4">

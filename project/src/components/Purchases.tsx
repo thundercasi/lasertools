@@ -134,6 +134,9 @@ export default function Purchases() {
     });
     const { data: pi } = await supabase.from('purchase_items').select('*').eq('purchase_id', p.id);
     setRows((pi ?? []).map((r: any) => ({
+      // unit_cost stays the raw value the user typed, in the purchase's own
+      // currency — unit_cost_total (R$, apportioned) is not editable here,
+      // it's recomputed on save from the current form values.
       part_id: r.part_id, quantity: Number(r.quantity), unit_cost: Number(r.unit_cost),
       serial_number: r.serial_number ?? '',
     })));
@@ -155,14 +158,33 @@ export default function Purchases() {
     }));
   };
 
+  const setIsImport = (checked: boolean) => {
+    setForm((f) => ({
+      ...f,
+      is_import: checked,
+      currency: checked ? (f.currency === 'BRL' ? 'USD' : f.currency) : 'BRL',
+      rate_confirmed: checked ? f.rate_confirmed : true,
+    }));
+  };
+
   const setIofValue = (v: number) => setForm((f) => ({ ...f, iof_value: v }));
 
   const freight = Number(form.freight) || 0;
   const otherExpenses = Number(form.other_expenses) || 0;
+  // Import tax is always entered in R$ and is never converted — it's added
+  // at the very end, on top of the BRL-converted subtotal.
   const importTax = (!form.is_import || form.currency === 'BRL') ? 0 : (Number(form.import_tax) || 0);
-  const extraCosts = freight + otherExpenses + importTax;
-  const itemsTotal = computedTotal;
-  const grandTotal = itemsTotal + extraCosts;
+  const exchangeRate = Number(form.exchange_rate) || 1;
+  const toBRL = (v: number) => (form.currency === 'USD' ? v * exchangeRate : v);
+
+  const itemsTotal = computedTotal; // in form.currency
+  const foreignExtras = freight + otherExpenses; // in form.currency
+  const subtotalBRL = toBRL(itemsTotal + foreignExtras);
+  // Total geral is always expressed in R$, since the import tax can never
+  // be converted and everything else must be brought to the same currency
+  // before summing.
+  const grandTotal = subtotalBRL + importTax;
+  const extraCostsBRL = toBRL(foreignExtras) + importTax;
 
   const save = async () => {
     setError('');
@@ -176,7 +198,7 @@ export default function Purchases() {
         is_import: form.is_import,
         currency: form.currency,
         exchange_rate: Number(form.exchange_rate),
-        iof: Number(form.iof_value), iof_rebate: 0,
+        iof: Number(form.iof_value),
         rate_confirmed: form.currency === 'BRL' ? true : form.rate_confirmed,
         status: form.status,
         payment_status: form.payment_status,
@@ -190,10 +212,33 @@ export default function Purchases() {
         notes: form.notes || null,
       };
 
+      // Working snapshot of stock/cost per part, so we can (a) reverse the
+      // previous version of this purchase exactly and (b) apply several
+      // rows of the same part in one purchase without reading stale data.
+      const workingParts = new Map(parts.map((p) => [p.id, { stock: Number(p.stock_quantity), cost: Number(p.unit_cost) }]));
+
       let purchaseId = editing?.id;
       if (editing) {
         const { error: e } = await supabase.from('purchases').update(payload).eq('id', editing.id);
         if (e) { setError(e.message); return; }
+
+        // Reverse the stock/cost impact of the OLD items of this purchase
+        // before deleting them, so editing never double-counts quantity.
+        const { data: oldItems } = await supabase.from('purchase_items').select('*').eq('purchase_id', editing.id);
+        for (const oi of (oldItems ?? []) as any[]) {
+          const w = workingParts.get(oi.part_id);
+          if (!w) continue;
+          const oldQty = Number(oi.quantity);
+          const oldCostTotal = Number(oi.unit_cost_total) || Number(oi.unit_cost) || 0;
+          const newStock = w.stock - oldQty;
+          let newCost = w.cost;
+          if (newStock > 0) {
+            const backedOut = (w.stock * w.cost) - (oldQty * oldCostTotal);
+            newCost = backedOut > 0 ? backedOut / newStock : w.cost;
+          }
+          workingParts.set(oi.part_id, { stock: Math.max(newStock, 0), cost: newCost });
+        }
+
         await supabase.from('purchase_items').delete().eq('purchase_id', editing.id);
       } else {
         const { data: existing } = await supabase.from('purchases').select('code');
@@ -207,39 +252,44 @@ export default function Purchases() {
         purchaseId = (data as any).id;
       }
 
-      // Apportion extra costs (freight + other expenses) proportionally to each item
+      // Apportion extra costs (freight + other expenses + import tax, all
+      // already in BRL) proportionally to each item, based on its BRL value.
+      const itemsTotalBRL = toBRL(itemsTotal);
       const itemPayload = validRows.map((r) => {
-        const proportion = itemsTotal > 0 ? (r.quantity * r.unit_cost) / itemsTotal : 0;
-        const extraPerUnit = r.quantity > 0 ? (extraCosts * proportion) / r.quantity : 0;
+        const unitCostBRL = toBRL(r.unit_cost);
+        const proportion = itemsTotalBRL > 0 ? (r.quantity * unitCostBRL) / itemsTotalBRL : 0;
+        const extraPerUnitBRL = r.quantity > 0 ? (extraCostsBRL * proportion) / r.quantity : 0;
         return {
           purchase_id: purchaseId, part_id: r.part_id,
           quantity: Number(r.quantity),
-          unit_cost: Number(r.unit_cost),          // raw entered cost — NOT inflated
-          unit_cost_total: Number(r.unit_cost) + extraPerUnit, // with apportionment (used for avg cost)
+          unit_cost: Number(r.unit_cost),               // raw entered cost, in the purchase currency
+          unit_cost_total: unitCostBRL + extraPerUnitBRL, // apportioned cost in R$ — used for avg stock cost
           serial_number: r.serial_number || null,
         };
       });
-      // Insert only the columns that exist on the table (unit_cost_total is runtime-only)
-      const { error: ie } = await supabase.from('purchase_items').insert(
-        itemPayload.map(({ unit_cost_total: _, ...rest }) => rest)
-      );
+      const { error: ie } = await supabase.from('purchase_items').insert(itemPayload);
       if (ie) { setError(ie.message); return; }
 
-      // Update stock + weighted average cost using the apportioned cost
+      // Apply the new items on top of the (already reversed, if editing) stock/cost.
       for (const r of itemPayload) {
-        const part = parts.find((p) => p.id === r.part_id);
-        if (part) {
-          const oldStock = Number(part.stock_quantity);
-          const oldCost = Number(part.unit_cost);
-          const newQty = Number(r.quantity);
-          const newCost = Number(r.unit_cost_total);
-          const totalQty = oldStock + newQty;
-          const avgCost = totalQty > 0 ? (oldStock * oldCost + newQty * newCost) / totalQty : newCost;
+        const w = workingParts.get(r.part_id) ?? { stock: 0, cost: 0 };
+        const newQty = Number(r.quantity);
+        const newCost = Number(r.unit_cost_total); // already in R$
+        const totalQty = w.stock + newQty;
+        const avgCost = totalQty > 0 ? (w.stock * w.cost + newQty * newCost) / totalQty : newCost;
+        workingParts.set(r.part_id, { stock: totalQty, cost: avgCost });
+      }
+
+      // Persist only the parts whose stock or cost actually changed.
+      for (const [partId, w] of workingParts) {
+        const original = parts.find((p) => p.id === partId);
+        if (!original) continue;
+        if (w.stock !== Number(original.stock_quantity) || w.cost !== Number(original.unit_cost)) {
           await supabase.from('parts').update({
-            stock_quantity: totalQty,
-            unit_cost: avgCost,
+            stock_quantity: w.stock,
+            unit_cost: w.cost,
             purchase_date: form.purchase_date,
-          }).eq('id', r.part_id);
+          }).eq('id', partId);
         }
       }
 
@@ -333,6 +383,73 @@ export default function Purchases() {
           <div className="space-y-5">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
 
+            {/* Importação — no topo, pois define moeda/câmbio que ajustam os demais campos */}
+            <div className="bg-sky-50 rounded-xl p-4 space-y-4">
+              <label htmlFor="is_import_check" className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  id="is_import_check"
+                  type="checkbox"
+                  checked={form.is_import}
+                  onChange={(e) => setIsImport(e.target.checked)}
+                  className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                />
+                <span className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1.5">
+                  <Plane size={14} className="text-sky-500" /> Compra de importação
+                </span>
+              </label>
+              {form.is_import && (
+                <div className="space-y-4">
+                  <div className="grid sm:grid-cols-3 gap-4">
+                    <Field label="Moeda">
+                      <select className={inputCls} value={form.currency} onChange={(e) => setCurrency(e.target.value)}>
+                        <option value="BRL">BRL (R$)</option>
+                        <option value="USD">USD ($)</option>
+                      </select>
+                    </Field>
+                    <Field label="Taxa de câmbio" hint={form.currency === 'BRL' ? '(não se aplica)' : ''}>
+                      <input type="number" step="0.0001" className={inputCls} value={form.exchange_rate} disabled={form.currency === 'BRL'} onChange={(e) => setForm({ ...form, exchange_rate: Number(e.target.value) })} />
+                    </Field>
+                    <div className="flex items-end">
+                      <label className={`flex items-center gap-2.5 ${form.currency === 'BRL' ? 'cursor-default' : 'cursor-pointer'} pb-2.5`}>
+                        <input
+                          type="checkbox"
+                          checked={form.rate_confirmed}
+                          disabled={form.currency === 'BRL'}
+                          onChange={(e) => setForm({ ...form, rate_confirmed: e.target.checked })}
+                          className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
+                        />
+                        <span className="text-sm text-slate-700 inline-flex items-center gap-1">
+                          <CheckCircle2 size={14} className={form.rate_confirmed ? 'text-emerald-500' : 'text-slate-400'} />
+                          Taxa confirmada{form.currency === 'BRL' && ' (fixa p/ BRL)'}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <Field label="Valor IOF" hint={form.currency === 'BRL' ? '(não se aplica)' : ''}>
+                      <input
+                        type="number" step="0.01"
+                        className={inputCls}
+                        value={form.iof_value}
+                        disabled={form.currency === 'BRL'}
+                        onChange={(e) => setIofValue(Number(e.target.value))}
+                      />
+                    </Field>
+                    {form.currency !== 'BRL' && (
+                      <Field label="Taxa de importação (valor fixo, R$)" hint="compõe o custo total">
+                        <input
+                          type="number" step="0.01"
+                          className={inputCls}
+                          value={form.import_tax}
+                          onChange={(e) => setForm({ ...form, import_tax: Number(e.target.value) })}
+                        />
+                      </Field>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Fornecedor">
                 <select className={inputCls} value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
@@ -390,7 +507,7 @@ export default function Purchases() {
                       }}
                     >
                       <option value="">— Selecione —</option>
-                      {parts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {parts.map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
                     </select>
                     <input
                       type="number" min={1} placeholder="Qtd"
@@ -443,15 +560,21 @@ export default function Purchases() {
                         <span className="font-semibold text-slate-700">{money(otherExpenses, form.currency)}</span>
                       </div>
                     )}
+                    {form.currency === 'USD' && (
+                      <div className="flex justify-between gap-6">
+                        <span className="text-slate-500">Subtotal convertido:</span>
+                        <span className="font-semibold text-slate-700">{BRL(subtotalBRL)} <span className="text-slate-400 font-normal">(câmbio {exchangeRate})</span></span>
+                      </div>
+                    )}
                     {importTax > 0 && (
                       <div className="flex justify-between gap-6">
-                        <span className="text-slate-500">Taxa de importação:</span>
+                        <span className="text-slate-500">Taxa de importação (R$):</span>
                         <span className="font-semibold text-slate-700">{BRL(importTax)}</span>
                       </div>
                     )}
                     <div className="flex justify-between gap-6 border-t border-slate-200 pt-1">
-                      <span className="text-slate-500 font-semibold">Total geral:</span>
-                      <span className="font-bold text-slate-900">{money(grandTotal, form.currency)}</span>
+                      <span className="text-slate-500 font-semibold">Total geral (R$):</span>
+                      <span className="font-bold text-slate-900">{BRL(grandTotal)}</span>
                     </div>
                   </div>
                 </div>
@@ -478,75 +601,6 @@ export default function Purchases() {
                   </Field>
                 )}
               </div>
-            </div>
-
-            {/* Importação / câmbio */}
-            <div className="border-t border-slate-200 pt-4">
-              <span className="label">Importação e câmbio</span>
-              <div className="grid sm:grid-cols-3 gap-4 mt-1">
-                <Field label="Moeda">
-                  <select className={inputCls} value={form.currency} onChange={(e) => setCurrency(e.target.value)}>
-                    <option value="BRL">BRL (R$)</option>
-                    <option value="USD">USD ($)</option>
-                  </select>
-                </Field>
-                <Field label="Taxa de câmbio" hint={form.currency === 'BRL' ? '(não se aplica)' : ''}>
-                  <input type="number" step="0.0001" className={inputCls} value={form.exchange_rate} disabled={form.currency === 'BRL'} onChange={(e) => setForm({ ...form, exchange_rate: Number(e.target.value) })} />
-                </Field>
-                <div className="flex items-end">
-                  <label className={`flex items-center gap-2.5 ${form.currency === 'BRL' ? 'cursor-default' : 'cursor-pointer'} pb-2.5`}>
-                    <input
-                      type="checkbox"
-                      checked={form.rate_confirmed}
-                      disabled={form.currency === 'BRL'}
-                      onChange={(e) => setForm({ ...form, rate_confirmed: e.target.checked })}
-                      className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
-                    />
-                    <span className="text-sm text-slate-700 inline-flex items-center gap-1">
-                      <CheckCircle2 size={14} className={form.rate_confirmed ? 'text-emerald-500' : 'text-slate-400'} />
-                      Taxa confirmada{form.currency === 'BRL' && ' (fixa p/ BRL)'}
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              {/* IOF */}
-              <div className="mt-4">
-                <Field label="Valor IOF" hint={form.currency === 'BRL' ? '(não se aplica)' : ''}>
-                  <input
-                    type="number" step="0.01"
-                    className={inputCls}
-                    value={form.iof_value}
-                    disabled={form.currency === 'BRL'}
-                    onChange={(e) => setIofValue(Number(e.target.value))}
-                  />
-                </Field>
-              </div>
-
-              <div className="flex items-center gap-2.5 mt-4">
-                <input
-                  id="is_import_check"
-                  type="checkbox"
-                  checked={form.is_import}
-                  onChange={(e) => setForm({ ...form, is_import: e.target.checked })}
-                  className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
-                />
-                <label htmlFor="is_import_check" className="text-sm text-slate-700 inline-flex items-center gap-1 cursor-pointer select-none">
-                  <Plane size={14} className="text-sky-500" /> Importação
-                </label>
-              </div>
-              {form.is_import && form.currency !== 'BRL' && (
-                <div className="mt-4">
-                  <Field label="Taxa de importação (valor fixo)" hint="compõe o custo total">
-                    <input
-                      type="number" step="0.01"
-                      className={inputCls}
-                      value={form.import_tax}
-                      onChange={(e) => setForm({ ...form, import_tax: Number(e.target.value) })}
-                    />
-                  </Field>
-                </div>
-              )}
             </div>
 
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>

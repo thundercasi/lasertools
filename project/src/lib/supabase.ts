@@ -62,6 +62,7 @@ export type PurchaseItem = {
   part_id: string;
   quantity: number;
   unit_cost: number;
+  unit_cost_total: number;
   serial_number: string | null;
   created_at: string;
   part?: Part | null;
@@ -76,7 +77,6 @@ export type Purchase = {
   exchange_rate: number;
   iof: number;
   iof_type: string;
-  iof_rebate: number;
   rate_confirmed: boolean;
   status: string;
   purchase_date: string;
