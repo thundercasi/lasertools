@@ -7,10 +7,10 @@ import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone 
 type ItemRow = { part_id: string; quantity: number; unit_cost: number; serial_number: string };
 const inputCls = 'input';
 
-const PAYMENT_METHODS = ['PIX', 'Cartão', 'Boleto', 'Parcelamento'] as const;
+const PAYMENT_METHODS = ['PIX', 'Cartão', 'Boleto'] as const;
 type PaymentMethod = typeof PAYMENT_METHODS[number];
 
-const PAYMENT_STATUS = ['Pendente', 'Aguardando Entrega', 'Concluída'] as const;
+const PAYMENT_STATUS = ['Pendente', 'Concluída'] as const;
 type PaymentStatus = typeof PAYMENT_STATUS[number];
 
 const PURCHASE_STATUS = ['Pendente', 'Aguardando Entrega', 'Concluída'] as const;
@@ -22,7 +22,7 @@ const emptyForm = {
   status: 'Pendente' as PurchaseStatus, payment_status: 'Pendente' as PaymentStatus,
   purchase_date: new Date().toISOString().slice(0, 10), notes: '',
   payment_method: 'PIX' as PaymentMethod, first_installment_date: '',
-  installment_count: 1,
+  installment_count: 1, installment_interval_days: 30,
   freight: 0, other_expenses: 0, import_tax: 0,
 };
 
@@ -105,7 +105,7 @@ export default function Purchases() {
       return m ? Math.max(max, parseInt(m[1], 10)) : max;
     }, 0);
     setEditing(null);
-    setForm({ ...emptyForm, code: `COMP-${String(maxNum + 1).padStart(4, '0')}`, rate_confirmed: true });
+    setForm({ ...emptyForm, code: `COMP-${String(maxNum + 1).padStart(4, '0')}`, rate_confirmed: true, first_installment_date: emptyForm.purchase_date });
     setRows([{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
     setError(''); setOpen(true);
   };
@@ -120,14 +120,15 @@ export default function Purchases() {
     setEditing(p);
     setForm({
       code: p.code, supplier_id: p.supplier_id ?? '', is_import: p.is_import,
-      currency: p.currency, exchange_rate: Number(p.exchange_rate) || 1,
+      currency: p.currency, exchange_rate: p.currency === 'BRL' ? 1 : (Number(p.exchange_rate) || 1),
       iof_percent: 0, iof_value: Number(p.iof) || 0,
       rate_confirmed: p.rate_confirmed, status: p.status as PurchaseStatus,
       payment_status: (PAYMENT_STATUS.includes(p.payment_status as PaymentStatus) ? p.payment_status : 'Pendente') as PaymentStatus,
       purchase_date: p.purchase_date, notes: p.notes ?? '',
       payment_method: (PAYMENT_METHODS.includes(p.payment_method as PaymentMethod) ? p.payment_method : 'PIX') as PaymentMethod,
       first_installment_date: p.first_installment_date ?? '',
-      installment_count: 1,
+      installment_count: Number(p.installment_count) || 1,
+      installment_interval_days: Number(p.installment_interval_days) || 30,
       freight: Number(p.freight) || 0,
       other_expenses: Number(p.other_expenses) || 0,
       import_tax: Number(p.import_tax) || 0,
@@ -153,7 +154,8 @@ export default function Purchases() {
   const setCurrency = (c: string) => {
     const isBRL = c === 'BRL';
     setForm((f) => ({
-      ...f, currency: c, is_import: isBRL ? false : f.is_import,
+      ...f, currency: c,
+      exchange_rate: isBRL ? 1 : f.exchange_rate,
       rate_confirmed: isBRL ? true : f.rate_confirmed,
     }));
   };
@@ -162,7 +164,6 @@ export default function Purchases() {
     setForm((f) => ({
       ...f,
       is_import: checked,
-      currency: checked ? (f.currency === 'BRL' ? 'USD' : f.currency) : 'BRL',
       rate_confirmed: checked ? f.rate_confirmed : true,
     }));
   };
@@ -173,7 +174,7 @@ export default function Purchases() {
   const otherExpenses = Number(form.other_expenses) || 0;
   // Import tax is always entered in R$ and is never converted — it's added
   // at the very end, on top of the BRL-converted subtotal.
-  const importTax = (!form.is_import || form.currency === 'BRL') ? 0 : (Number(form.import_tax) || 0);
+  const importTax = !form.is_import ? 0 : (Number(form.import_tax) || 0);
   const exchangeRate = Number(form.exchange_rate) || 1;
   const toBRL = (v: number) => (form.currency === 'USD' ? v * exchangeRate : v);
 
@@ -208,7 +209,9 @@ export default function Purchases() {
         other_expenses: otherExpenses,
         import_tax: importTax,
         payment_method: form.payment_method,
-        first_installment_date: form.payment_method === 'Parcelamento' ? (form.first_installment_date || null) : null,
+        installment_count: Number(form.installment_count) || 1,
+        installment_interval_days: Number(form.installment_interval_days) || 30,
+        first_installment_date: Number(form.installment_count) > 1 ? (form.first_installment_date || null) : null,
         notes: form.notes || null,
       };
 
@@ -362,8 +365,11 @@ export default function Purchases() {
                     <td className="td text-slate-500">{formatDate(p.purchase_date)}</td>
                     <td className="td text-slate-600">{p.payment_method}</td>
                     <td className="td"><Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge></td>
-                    <td className="td"><Badge tone={p.payment_status === 'Concluída' ? 'green' : p.payment_status === 'Aguardando Entrega' ? 'blue' : 'amber'}>{p.payment_status}</Badge></td>
-                    <td className="td text-right font-semibold text-slate-900">{BRL(Number(p.total_amount) * (Number(p.exchange_rate) || 1))}</td>
+                    <td className="td">
+                      <Badge tone={p.payment_status === 'Concluída' ? 'green' : p.payment_status === 'Aguardando Entrega' ? 'blue' : 'amber'}>{p.payment_status}</Badge>
+                      {p.installment_count > 1 && <span className="ml-1.5 text-xs text-slate-400">{p.installment_count}x</span>}
+                    </td>
+                    <td className="td text-right font-semibold text-slate-900">{BRL(Number(p.total_amount))}</td>
                     <td className="td">
                       <div className="flex justify-end gap-1">
                         <button className="icon-btn" onClick={() => openEdit(p)}><Pencil size={15} /></button>
@@ -426,25 +432,22 @@ export default function Purchases() {
                     </div>
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
-                    <Field label="Valor IOF" hint={form.currency === 'BRL' ? '(não se aplica)' : ''}>
+                    <Field label="Valor IOF" hint={form.currency === 'BRL' ? '(rateio sem conversão de câmbio)' : ''}>
                       <input
                         type="number" step="0.01"
                         className={inputCls}
                         value={form.iof_value}
-                        disabled={form.currency === 'BRL'}
                         onChange={(e) => setIofValue(Number(e.target.value))}
                       />
                     </Field>
-                    {form.currency !== 'BRL' && (
-                      <Field label="Taxa de importação (valor fixo, R$)" hint="compõe o custo total">
-                        <input
-                          type="number" step="0.01"
-                          className={inputCls}
-                          value={form.import_tax}
-                          onChange={(e) => setForm({ ...form, import_tax: Number(e.target.value) })}
-                        />
-                      </Field>
-                    )}
+                    <Field label="Taxa de importação (valor fixo, R$)" hint="compõe o custo total">
+                      <input
+                        type="number" step="0.01"
+                        className={inputCls}
+                        value={form.import_tax}
+                        onChange={(e) => setForm({ ...form, import_tax: Number(e.target.value) })}
+                      />
+                    </Field>
                   </div>
                 </div>
               )}
@@ -584,22 +587,28 @@ export default function Purchases() {
             {/* Pagamento */}
             <div className="border-t border-slate-200 pt-4">
               <span className="label">Pagamento</span>
-              <div className="grid sm:grid-cols-2 gap-4 mt-1">
+              <p className="text-xs text-slate-400 mb-1">Qualquer forma de pagamento pode ser parcelada.</p>
+              <div className="grid sm:grid-cols-3 gap-4 mt-1">
                 <Field label="Forma de pagamento">
                   <select className={inputCls} value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value as PaymentMethod })}>
                     {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </Field>
-                {form.payment_method === 'Parcelamento' && (
-                  <Field label="Nº de parcelas">
-                    <input type="number" min={1} className={inputCls} value={form.installment_count} onChange={(e) => setForm({ ...form, installment_count: Number(e.target.value) })} />
-                  </Field>
-                )}
-                {form.payment_method === 'Parcelamento' && (
-                  <Field label="Data primeira parcela">
-                    <input type="date" className={inputCls} value={form.first_installment_date} onChange={(e) => setForm({ ...form, first_installment_date: e.target.value })} />
-                  </Field>
-                )}
+                <Field label="Nº de parcelas">
+                  <input type="number" min={1} className={inputCls} value={form.installment_count} onChange={(e) => setForm({ ...form, installment_count: Number(e.target.value) })} />
+                </Field>
+                <Field label="Intervalo (dias)">
+                  <input type="number" min={1} className={inputCls} value={form.installment_interval_days} onChange={(e) => setForm({ ...form, installment_interval_days: Number(e.target.value) })} />
+                </Field>
+                <Field label="Data da primeira parcela" hint={form.installment_count > 1 ? 'vencimento' : 'à vista'}>
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={form.first_installment_date}
+                    disabled={form.installment_count <= 1}
+                    onChange={(e) => setForm({ ...form, first_installment_date: e.target.value })}
+                  />
+                </Field>
               </div>
             </div>
 

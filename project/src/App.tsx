@@ -1,30 +1,34 @@
 import { useState } from 'react';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users,
-  Wallet, Search, Boxes, Menu, X,
+  Wallet, Search, Boxes, Menu, X, ClipboardList,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
 import Dashboard from './components/Dashboard';
 import Parts from './components/Parts';
 import Suppliers from './components/Suppliers';
 import Purchases from './components/Purchases';
+import Orders from './components/Orders';
 import Sales from './components/Sales';
 import Customers from './components/Customers';
 import Financial from './components/Financial';
+import Payables from './components/Payables';
 import Competition from './components/Competition';
 
 type ViewId =
-  | 'dashboard' | 'parts' | 'suppliers' | 'purchases'
-  | 'sales' | 'customers' | 'financial' | 'competition';
+  | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases'
+  | 'sales' | 'customers' | 'financial' | 'payables' | 'competition';
 
 const navItems: { id: ViewId; label: string; icon: typeof Package }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'parts', label: 'Peças', icon: Boxes },
   { id: 'suppliers', label: 'Fornecedores', icon: Truck },
+  { id: 'orders', label: 'Pedidos', icon: ClipboardList },
   { id: 'purchases', label: 'Compras', icon: ShoppingCart },
   { id: 'sales', label: 'Vendas', icon: Receipt },
   { id: 'customers', label: 'Clientes', icon: Users },
   { id: 'financial', label: 'Contas a Receber', icon: Wallet },
+  { id: 'payables', label: 'Contas a Pagar', icon: Wallet },
   { id: 'competition', label: 'Concorrentes', icon: Users },
 ];
 
@@ -39,10 +43,12 @@ export default function App() {
       case 'dashboard': return <Dashboard />;
       case 'parts': return <Parts />;
       case 'suppliers': return <Suppliers />;
+      case 'orders': return <Orders />;
       case 'purchases': return <Purchases />;
       case 'sales': return <Sales />;
       case 'customers': return <Customers />;
       case 'financial': return <Financial />;
+      case 'payables': return <Payables />;
       case 'competition': return <Competition />;
     }
   };

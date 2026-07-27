@@ -86,6 +86,8 @@ export type Purchase = {
   import_tax: number;
   payment_method: string;
   payment_status: string;
+  installment_count: number;
+  installment_interval_days: number;
   first_installment_date: string | null;
   notes: string | null;
   created_at: string;
@@ -143,7 +145,9 @@ export type Installment = {
   reference_id: string;
   reference_type: string;
   sale_id: string | null;
+  purchase_id: string | null;
   customer_id: string | null;
+  supplier_id: string | null;
   installment_number: number;
   amount: number;
   due_date: string;
@@ -155,7 +159,9 @@ export type Installment = {
   notified_at: string | null;
   created_at: string;
   customer?: Customer | null;
+  supplier?: Supplier | null;
   sale?: Sale | null;
+  purchase?: Purchase | null;
 };
 
 export type Competitor = {
