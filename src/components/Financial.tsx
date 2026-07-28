@@ -19,9 +19,10 @@ export default function Financial() {
     let res = await supabase
       .from('installments')
       .select('*, customer:customer_id(*), sale:sale_id(*)')
+      .eq('reference_type', 'sale')
       .order('due_date', { ascending: true });
     if (res.error && /relationship.*schema cache/i.test(res.error.message)) {
-      res = await supabase.from('installments').select('*').order('due_date', { ascending: true });
+      res = await supabase.from('installments').select('*').eq('reference_type', 'sale').order('due_date', { ascending: true });
     }
     setItems((res.data as Installment[]) ?? []);
     setLoading(false);

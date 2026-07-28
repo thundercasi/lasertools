@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
-import { Plus, Pencil, Trash2, Receipt, Search, Paperclip, FileText, X, ExternalLink } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
+import { Plus, Pencil, Trash2, Receipt, Search, Paperclip, FileText, X, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase, type Sale, type Customer, type SaleFile, type SaleItem, type Part, BRL, formatDate } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 import { useSessionState } from '../lib/useSessionState';
@@ -31,6 +31,20 @@ export default function Sales() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Record<string, SaleItem[]>>({});
+  const [expandedLoading, setExpandedLoading] = useState<string | null>(null);
+
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (!expandedItems[id]) {
+      setExpandedLoading(id);
+      const { data } = await supabase.from('sale_items').select('*, part:part_id(*)').eq('sale_id', id);
+      setExpandedItems((prev) => ({ ...prev, [id]: (data as any) ?? [] }));
+      setExpandedLoading(null);
+    }
+  };
   const [files, setFiles] = useState<SaleFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -275,6 +289,7 @@ export default function Sales() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
+                  <th className="th w-8"></th>
                   <th className="th">Cliente</th>
                   <th className="th">Data</th>
                   <th className="th">Parcelas</th>
@@ -290,20 +305,62 @@ export default function Sales() {
                   const ded = t * (Number(s.nf_tax) + Number(s.nf_fee) + Number(s.salesperson_commission)) / 100;
                   const net = t - ded - Number(s.delivery_cost || 0);
                   return (
-                    <tr key={s.id} className="hover:bg-slate-50/50 transition">
-                      <td className="td font-medium text-slate-900">{s.customer?.name ?? '—'}</td>
-                      <td className="td text-slate-500">{formatDate(s.sale_date)}</td>
-                      <td className="td text-slate-600">{s.installment_count}x</td>
-                      <td className="td"><Badge tone={statusTone(s.status)}>{statusLabel(s.status)}</Badge></td>
-                      <td className="td text-right font-semibold text-slate-900">{BRL(t)}</td>
-                      <td className="td text-right text-slate-600">{BRL(net)}</td>
-                      <td className="td">
-                        <div className="flex justify-end gap-1">
-                          <button className="icon-btn" onClick={() => openEdit(s)}><Pencil size={15} /></button>
-                          <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(s.id)}><Trash2 size={15} /></button>
-                        </div>
-                      </td>
-                    </tr>
+                    <Fragment key={s.id}>
+                      <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => toggleExpand(s.id)}>
+                        <td className="td text-slate-400">
+                          {expandedId === s.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </td>
+                        <td className="td font-medium text-slate-900">{s.customer?.name ?? '—'}</td>
+                        <td className="td text-slate-500">{formatDate(s.sale_date)}</td>
+                        <td className="td text-slate-600">{s.installment_count}x</td>
+                        <td className="td"><Badge tone={statusTone(s.status)}>{statusLabel(s.status)}</Badge></td>
+                        <td className="td text-right font-semibold text-slate-900">{BRL(t)}</td>
+                        <td className="td text-right text-slate-600">{BRL(net)}</td>
+                        <td className="td">
+                          <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button className="icon-btn" onClick={() => openEdit(s)}><Pencil size={15} /></button>
+                            <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(s.id)}><Trash2 size={15} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedId === s.id && (
+                        <tr className="bg-slate-50/60">
+                          <td></td>
+                          <td colSpan={7} className="px-5 py-3">
+                            {expandedLoading === s.id ? (
+                              <div className="text-xs text-slate-400 py-2">Carregando peças...</div>
+                            ) : (expandedItems[s.id]?.length ?? 0) === 0 ? (
+                              <div className="text-xs text-slate-400 py-2">Nenhuma peça associada a esta venda.</div>
+                            ) : (
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-slate-400">
+                                    <th className="text-left font-medium py-1.5">Peça</th>
+                                    <th className="text-left font-medium py-1.5">Marca</th>
+                                    <th className="text-right font-medium py-1.5">Qtd</th>
+                                    <th className="text-right font-medium py-1.5">Preço Unit.</th>
+                                    <th className="text-right font-medium py-1.5">Subtotal</th>
+                                    <th className="text-left font-medium py-1.5">Nº Série</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200/70">
+                                  {expandedItems[s.id].map((it) => (
+                                    <tr key={it.id}>
+                                      <td className="py-1.5 font-medium text-slate-800">{it.part?.name ?? '—'}</td>
+                                      <td className="py-1.5 text-slate-500">{it.part?.brand || '—'}</td>
+                                      <td className="py-1.5 text-right text-slate-600">{it.quantity}</td>
+                                      <td className="py-1.5 text-right text-slate-600">{BRL(Number(it.unit_price))}</td>
+                                      <td className="py-1.5 text-right font-medium text-slate-800">{BRL(Number(it.unit_price) * Number(it.quantity))}</td>
+                                      <td className="py-1.5 text-slate-500">{it.serial_number || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

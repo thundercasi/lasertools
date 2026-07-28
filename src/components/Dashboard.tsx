@@ -20,6 +20,7 @@ export default function Dashboard() {
     const { data } = await supabase
       .from('installments')
       .select('*, customer:customer_id(*)')
+      .eq('reference_type', 'sale')
       .eq('paid', false)
       .order('due_date', { ascending: true });
     const all = (data as Installment[]) ?? [];

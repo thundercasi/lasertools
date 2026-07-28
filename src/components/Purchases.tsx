@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, ShoppingCart, Search, Plane, CheckCircle2, X as XIcon } from 'lucide-react';
-import { supabase, type Purchase, type Supplier, type Part, money, BRL, formatDate } from '../lib/supabase';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Plus, Pencil, Trash2, ShoppingCart, Search, Plane, CheckCircle2, X as XIcon, ChevronDown, ChevronRight } from 'lucide-react';
+import { supabase, type Purchase, type Supplier, type Part, type PurchaseItem, money, BRL, formatDate } from '../lib/supabase';
 import { useSessionState } from '../lib/useSessionState';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 
@@ -40,6 +40,20 @@ export default function Purchases() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Record<string, PurchaseItem[]>>({});
+  const [expandedLoading, setExpandedLoading] = useState<string | null>(null);
+
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (!expandedItems[id]) {
+      setExpandedLoading(id);
+      const { data } = await supabase.from('purchase_items').select('*, part:part_id(*)').eq('purchase_id', id);
+      setExpandedItems((prev) => ({ ...prev, [id]: (data as any) ?? [] }));
+      setExpandedLoading(null);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -344,6 +358,7 @@ export default function Purchases() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
+                  <th className="th w-8"></th>
                   <th className="th">Fornecedor</th>
                   <th className="th">Data</th>
                   <th className="th">Pagamento</th>
@@ -355,28 +370,70 @@ export default function Purchases() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50/50 transition">
-                    <td className="td">
-                      <div className="flex items-center gap-2">
-                        {p.is_import && <Plane size={14} className="text-sky-500" />}
-                        <span className="font-medium text-slate-900">{p.supplier?.name ?? '—'}</span>
-                      </div>
-                    </td>
-                    <td className="td text-slate-500">{formatDate(p.purchase_date)}</td>
-                    <td className="td text-slate-600">{p.payment_method}</td>
-                    <td className="td"><Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge></td>
-                    <td className="td">
-                      <Badge tone={p.payment_status === 'Concluída' ? 'green' : p.payment_status === 'Aguardando Entrega' ? 'blue' : 'amber'}>{p.payment_status}</Badge>
-                      {p.installment_count > 1 && <span className="ml-1.5 text-xs text-slate-400">{p.installment_count}x</span>}
-                    </td>
-                    <td className="td text-right font-semibold text-slate-900">{BRL(Number(p.total_amount))}</td>
-                    <td className="td">
-                      <div className="flex justify-end gap-1">
-                        <button className="icon-btn" onClick={() => openEdit(p)}><Pencil size={15} /></button>
-                        <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(p.id)}><Trash2 size={15} /></button>
-                      </div>
-                    </td>
-                  </tr>
+                  <Fragment key={p.id}>
+                    <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => toggleExpand(p.id)}>
+                      <td className="td text-slate-400">
+                        {expandedId === p.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </td>
+                      <td className="td">
+                        <div className="flex items-center gap-2">
+                          {p.is_import && <Plane size={14} className="text-sky-500" />}
+                          <span className="font-medium text-slate-900">{p.supplier?.name ?? '—'}</span>
+                        </div>
+                      </td>
+                      <td className="td text-slate-500">{formatDate(p.purchase_date)}</td>
+                      <td className="td text-slate-600">{p.payment_method}</td>
+                      <td className="td"><Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge></td>
+                      <td className="td">
+                        <Badge tone={p.payment_status === 'Concluída' ? 'green' : p.payment_status === 'Aguardando Entrega' ? 'blue' : 'amber'}>{p.payment_status}</Badge>
+                        {p.installment_count > 1 && <span className="ml-1.5 text-xs text-slate-400">{p.installment_count}x</span>}
+                      </td>
+                      <td className="td text-right font-semibold text-slate-900">{BRL(Number(p.total_amount))}</td>
+                      <td className="td">
+                        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button className="icon-btn" onClick={() => openEdit(p)}><Pencil size={15} /></button>
+                          <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(p.id)}><Trash2 size={15} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedId === p.id && (
+                      <tr key={`${p.id}-expanded`} className="bg-slate-50/60">
+                        <td></td>
+                        <td colSpan={7} className="px-5 py-3">
+                          {expandedLoading === p.id ? (
+                            <div className="text-xs text-slate-400 py-2">Carregando peças...</div>
+                          ) : (expandedItems[p.id]?.length ?? 0) === 0 ? (
+                            <div className="text-xs text-slate-400 py-2">Nenhuma peça associada a esta compra.</div>
+                          ) : (
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-slate-400">
+                                  <th className="text-left font-medium py-1.5">Peça</th>
+                                  <th className="text-left font-medium py-1.5">Marca</th>
+                                  <th className="text-right font-medium py-1.5">Qtd</th>
+                                  <th className="text-right font-medium py-1.5">Custo Unit.</th>
+                                  <th className="text-right font-medium py-1.5">Subtotal</th>
+                                  <th className="text-left font-medium py-1.5">Nº Série</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200/70">
+                                {expandedItems[p.id].map((it) => (
+                                  <tr key={it.id}>
+                                    <td className="py-1.5 font-medium text-slate-800">{it.part?.name ?? '—'}</td>
+                                    <td className="py-1.5 text-slate-500">{it.part?.brand || '—'}</td>
+                                    <td className="py-1.5 text-right text-slate-600">{it.quantity}</td>
+                                    <td className="py-1.5 text-right text-slate-600">{money(Number(it.unit_cost), p.currency)}</td>
+                                    <td className="py-1.5 text-right font-medium text-slate-800">{money(Number(it.unit_cost) * Number(it.quantity), p.currency)}</td>
+                                    <td className="py-1.5 text-slate-500">{it.serial_number || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
