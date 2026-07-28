@@ -11,8 +11,10 @@ const empty = {
 
 const emptyPrice = {
   competitor_id: '', competitor: '', price: 0, currency: 'BRL',
-  url: '', observed_at: new Date().toISOString().slice(0, 10), notes: '',
+  observed_at: new Date().toISOString().slice(0, 10), notes: '',
 };
+
+const NEW_COMPETITOR = '__new__';
 
 const inputCls = 'input';
 
@@ -120,6 +122,18 @@ export default function Parts() {
       const { data, error: e2 } = await supabase.from('parts').insert({ ...payload, sku }).select('id').single();
       err = e2;
       if (data) partId = (data as any).id;
+      if (!e2 && partId && priceRows.length > 0) {
+        const pending = priceRows.map((r) => ({
+          part_id: partId,
+          competitor_id: r.competitor_id || null,
+          competitor: r.competitor,
+          price: Number(r.price),
+          currency: r.currency,
+          observed_at: r.observed_at,
+          notes: r.notes || null,
+        }));
+        await supabase.from('competition_prices').insert(pending);
+      }
     }
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -138,6 +152,7 @@ export default function Parts() {
   const openNewPrice = () => {
     setEditingPrice(null);
     setPriceForm({ ...emptyPrice, observed_at: new Date().toISOString().slice(0, 10) });
+    setError('');
     setPriceOpen(true);
   };
 
@@ -148,7 +163,6 @@ export default function Parts() {
       competitor: pr.competitor ?? '',
       price: Number(pr.price) || 0,
       currency: pr.currency,
-      url: pr.url ?? '',
       observed_at: pr.observed_at,
       notes: pr.notes ?? '',
     });
@@ -156,18 +170,50 @@ export default function Parts() {
   };
 
   const savePrice = async () => {
-    if (!editing) return;
-    const comp = competitors.find((c) => c.id === priceForm.competitor_id);
-    const compName = comp?.name ?? priceForm.competitor.trim();
-    if (!compName) { setError('Selecione ou digite o concorrente.'); return; }
+    let competitorId = priceForm.competitor_id === NEW_COMPETITOR ? '' : priceForm.competitor_id;
+    let compName = competitors.find((c) => c.id === competitorId)?.name ?? '';
+
+    if (priceForm.competitor_id === NEW_COMPETITOR) {
+      const newName = priceForm.competitor.trim();
+      if (!newName) { setError('Digite o nome do novo concorrente.'); return; }
+      setPriceSaving(true);
+      const { data: created, error: cErr } = await supabase.from('competitors').insert({ name: newName }).select('*').single();
+      if (cErr) { setPriceSaving(false); setError(cErr.message); return; }
+      competitorId = created.id;
+      compName = created.name;
+      setCompetitors((prev) => [...prev, created as Competitor].sort((a, b) => a.name.localeCompare(b.name)));
+    }
+
+    if (!compName) { setError('Selecione ou cadastre um concorrente.'); return; }
     setPriceSaving(true);
+
+    if (!editing) {
+      // Part doesn't exist yet — keep this price locally; it's persisted
+      // together with the part when the main "Salvar" is clicked.
+      const localRow: PriceRow = {
+        id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        part_id: '',
+        competitor_id: competitorId || null,
+        competitor: compName,
+        price: Number(priceForm.price),
+        currency: priceForm.currency,
+        observed_at: priceForm.observed_at,
+        notes: priceForm.notes || null,
+        created_at: new Date().toISOString(),
+        competitor_ref: competitors.find((c) => c.id === competitorId) ?? null,
+      };
+      setPriceRows((prev) => editingPrice ? prev.map((r) => (r.id === editingPrice.id ? { ...localRow, id: editingPrice.id } : r)) : [localRow, ...prev]);
+      setPriceSaving(false);
+      setPriceOpen(false);
+      return;
+    }
+
     const payload = {
       part_id: editing.id,
-      competitor_id: priceForm.competitor_id || null,
+      competitor_id: competitorId || null,
       competitor: compName,
       price: Number(priceForm.price),
       currency: priceForm.currency,
-      url: priceForm.url || null,
       observed_at: priceForm.observed_at,
       notes: priceForm.notes || null,
     };
@@ -189,7 +235,13 @@ export default function Parts() {
   };
 
   const removePrice = async () => {
-    if (!priceDeleteId || !editing) return;
+    if (!priceDeleteId) return;
+    if (!editing) {
+      // Local-only row (part not saved yet)
+      setPriceRows((prev) => prev.filter((r) => r.id !== priceDeleteId));
+      setPriceDeleteId(null);
+      return;
+    }
     await supabase.from('competition_prices').delete().eq('id', priceDeleteId);
     setPriceDeleteId(null);
     const { data: prices } = await supabase
@@ -310,38 +362,36 @@ export default function Parts() {
               );
             })()}
             {/* Competitor prices */}
-            {editing && (
-              <div className="border-t border-slate-200 pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <BarChart3 size={16} className="text-slate-400" />
-                    <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Preços da concorrência</span>
-                  </div>
-                  <button type="button" onClick={openNewPrice} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700">
-                    <Plus size={14} /> Adicionar preço
-                  </button>
+            <div className="border-t border-slate-200 pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 size={16} className="text-slate-400" />
+                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Preços da concorrência</span>
                 </div>
-                {priceRows.length === 0 ? (
-                  <p className="text-xs text-slate-400">Nenhum preço de concorrente cadastrado.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {priceRows.map((pr) => (
-                      <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
-                          <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}{pr.url ? ' · com link' : ''}</div>
-                        </div>
-                        <div className="text-sm font-semibold text-slate-900 shrink-0">{BRL(pr.price)}</div>
-                        <div className="flex gap-1 shrink-0">
-                          <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
-                          <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <button type="button" onClick={openNewPrice} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700">
+                  <Plus size={14} /> Adicionar preço
+                </button>
               </div>
-            )}
+              {priceRows.length === 0 ? (
+                <p className="text-xs text-slate-400">Nenhum preço de concorrente cadastrado.</p>
+              ) : (
+                <div className="space-y-2">
+                  {priceRows.map((pr) => (
+                    <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
+                        <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
+                      </div>
+                      <div className="text-sm font-semibold text-slate-900 shrink-0">{BRL(pr.price)}</div>
+                      <div className="flex gap-1 shrink-0">
+                        <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
+                        <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
@@ -356,16 +406,25 @@ export default function Parts() {
         <Modal title={editingPrice ? 'Editar preço concorrente' : 'Novo preço concorrente'} onClose={() => setPriceOpen(false)}>
           <div className="space-y-4">
             <Field label="Concorrente">
-              <select className={inputCls} value={priceForm.competitor_id} onChange={(e) => setPriceForm({ ...priceForm, competitor_id: e.target.value })}>
+              <select
+                className={inputCls}
+                value={priceForm.competitor_id}
+                onChange={(e) => setPriceForm({ ...priceForm, competitor_id: e.target.value, competitor: e.target.value === NEW_COMPETITOR ? priceForm.competitor : '' })}
+              >
                 <option value="">— Selecione —</option>
                 {competitors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value={NEW_COMPETITOR}>+ Novo concorrente...</option>
               </select>
             </Field>
+            {priceForm.competitor_id === NEW_COMPETITOR && (
+              <Field label="Nome do novo concorrente">
+                <input className={inputCls} value={priceForm.competitor} onChange={(e) => setPriceForm({ ...priceForm, competitor: e.target.value })} placeholder="Ex: Concorrente XYZ" autoFocus />
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <Field label="Preço"><input type="number" step="0.01" className={inputCls} value={priceForm.price} onChange={(e) => setPriceForm({ ...priceForm, price: Number(e.target.value) })} /></Field>
               <Field label="Data"><input type="date" className={inputCls} value={priceForm.observed_at} onChange={(e) => setPriceForm({ ...priceForm, observed_at: e.target.value })} /></Field>
             </div>
-            <Field label="URL"><input className={inputCls} value={priceForm.url} onChange={(e) => setPriceForm({ ...priceForm, url: e.target.value })} placeholder="https://" /></Field>
             <Field label="Observações"><textarea className={inputCls} rows={2} value={priceForm.notes} onChange={(e) => setPriceForm({ ...priceForm, notes: e.target.value })} /></Field>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setPriceOpen(false)}>Cancelar</button>

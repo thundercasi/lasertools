@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ClipboardList, Plus, Trash2, Calculator, Printer, Eraser,
 } from 'lucide-react';
 import { BRL } from '../lib/supabase';
+import { useLocalState } from '../lib/useLocalState';
 import { Field, PageHeader } from './ui';
 
 type OrderItem = {
@@ -82,11 +83,19 @@ function PctField({ label, value, onChange, disabled }: { label: string; value: 
 }
 
 export default function Orders() {
-  const [header, setHeader] = useState(emptyHeader);
-  const [rates, setRates] = useState(emptyRates);
-  const [items, setItems] = useState<OrderItem[]>([newItem()]);
-  const [terms, setTerms] = useState(emptyTerms);
+  const [header, setHeader] = useLocalState('orders:header', emptyHeader);
+  const [rates, setRates] = useLocalState('orders:rates', emptyRates);
+  const [items, setItems] = useLocalState<OrderItem[]>('orders:items', [newItem()]);
+  const [terms, setTerms] = useLocalState('orders:terms', emptyTerms);
   const [generated, setGenerated] = useState(false);
+
+  // The date should always default to "today" on a fresh visit, even though
+  // the rest of the form remembers the last values filled in.
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    setHeader((h) => (h.proposal_date === today ? h : { ...h, proposal_date: today }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addItem = () => {
     if (items.length >= 10) return;

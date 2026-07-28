@@ -23,6 +23,8 @@ export default function Sales() {
   const [items, setItems] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [stockParts, setStockParts] = useState<Part[]>([]);
+  const [allParts, setAllParts] = useState<Part[]>([]);
+  const [costBySale, setCostBySale] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -55,13 +57,25 @@ export default function Sales() {
     setLoading(true);
     setError('');
     try {
-      const [cRes, pRes, piRes] = await Promise.all([
+      const [cRes, pRes, piRes, siRes] = await Promise.all([
         supabase.from('customers').select('*').order('name'),
         supabase.from('parts').select('*').order('name'),
         supabase.from('purchase_items').select('part_id, serial_number').not('serial_number', 'is', null).neq('serial_number', ''),
+        supabase.from('sale_items').select('sale_id, unit_cost, quantity'),
       ]);
       setCustomers((cRes.data as Customer[]) ?? []);
-      setStockParts(((pRes.data as Part[]) ?? []).filter((p) => Number(p.stock_quantity) > 0));
+      const allP = (pRes.data as Part[]) ?? [];
+      setAllParts(allP);
+      setStockParts(allP.filter((p) => Number(p.stock_quantity) > 0));
+
+      // Real acquisition cost (COGS) of each sale, from the cost locked-in
+      // on each sale_item at the moment it was sold — used so "Líquido"
+      // reflects the actual cost of the parts, not just fees/commissions.
+      const costMap: Record<string, number> = {};
+      for (const si of (siRes.data as any[]) ?? []) {
+        costMap[si.sale_id] = (costMap[si.sale_id] ?? 0) + Number(si.unit_cost) * Number(si.quantity);
+      }
+      setCostBySale(costMap);
 
       const serialMap = new Map<string, string[]>();
       for (const pi of (piRes.data as any[]) ?? []) {
@@ -221,7 +235,7 @@ export default function Sales() {
       if (saleId) {
         await supabase.from('sale_items').delete().eq('sale_id', saleId);
         for (const r of validRows) {
-          const part = stockParts.find((p) => p.id === r.part_id);
+          const part = allParts.find((p) => p.id === r.part_id);
           const unitCost = part ? Number(part.unit_cost) : 0;
           const { error: ie2 } = await supabase.from('sale_items').insert({
             sale_id: saleId, part_id: r.part_id, quantity: r.quantity,
@@ -258,8 +272,12 @@ export default function Sales() {
     const t = computedTotal;
     const fee = Number(form.delivery_fee) || 0;
     const cost = Number(form.delivery_cost) || 0;
+    const totalCost = rows.reduce((s, r) => {
+      const p = allParts.find((x) => x.id === r.part_id);
+      return s + (p ? Number(p.unit_cost) * r.quantity : 0);
+    }, 0);
     const ded = t * (Number(form.nf_tax) + Number(form.nf_fee) + Number(form.salesperson_commission)) / 100;
-    return { gross: t + fee, ded, cost, net: t + fee - ded - cost };
+    return { gross: t + fee, ded, cost, totalCost, net: t + fee - ded - cost - totalCost };
   };
 
   return (
@@ -303,7 +321,8 @@ export default function Sales() {
                 {filtered.map((s) => {
                   const t = Number(s.total_amount) + Number(s.delivery_fee || 0);
                   const ded = t * (Number(s.nf_tax) + Number(s.nf_fee) + Number(s.salesperson_commission)) / 100;
-                  const net = t - ded - Number(s.delivery_cost || 0);
+                  const cogs = costBySale[s.id] ?? 0;
+                  const net = t - ded - Number(s.delivery_cost || 0) - cogs;
                   return (
                     <Fragment key={s.id}>
                       <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => toggleExpand(s.id)}>
@@ -405,14 +424,20 @@ export default function Sales() {
                         className={`${inputCls} col-span-4`}
                         value={r.part_id}
                         onChange={(e) => {
-                          const p = stockParts.find((x) => x.id === e.target.value);
+                          const p = allParts.find((x) => x.id === e.target.value);
                           updateRow(i, { part_id: e.target.value, unit_price: p ? Number(p.unit_price) : 0, serial_number: '' });
                         }}
                       >
                         <option value="">— Selecione —</option>
                         {stockParts.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name} ({Number(p.stock_quantity)} em estoque)</option>
+                          <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''} ({Number(p.stock_quantity)} em estoque)</option>
                         ))}
+                        {r.part_id && !stockParts.some((p) => p.id === r.part_id) && (() => {
+                          const p = allParts.find((x) => x.id === r.part_id);
+                          return p ? (
+                            <option value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''} (sem estoque)</option>
+                          ) : null;
+                        })()}
                       </select>
                       <input
                         type="number" min={1} max={available || undefined} placeholder="Qtd"
@@ -447,7 +472,7 @@ export default function Sales() {
               )}
               {computedTotal > 0 && (() => {
                 const totalCost = rows.reduce((s, r) => {
-                  const p = stockParts.find((x) => x.id === r.part_id);
+                  const p = allParts.find((x) => x.id === r.part_id);
                   return s + (p ? Number(p.unit_cost) * r.quantity : 0);
                 }, 0);
                 const revenue = computedTotal;
@@ -505,10 +530,11 @@ export default function Sales() {
               <Field label="Comissão Vendedor (%)"><input type="number" step="0.01" className={inputCls} value={form.salesperson_commission} onChange={(e) => setForm({ ...form, salesperson_commission: Number(e.target.value) })} /></Field>
             </div>
             {(() => {
-              const { gross, ded, cost, net } = netCalc();
+              const { gross, ded, cost, totalCost, net } = netCalc();
               return computedTotal > 0 ? (
-                <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                   <div><div className="text-xs text-slate-400 font-semibold uppercase">Bruto c/ entrega</div><div className="font-semibold text-slate-900">{BRL(gross)}</div></div>
+                  <div><div className="text-xs text-slate-400 font-semibold uppercase">Custo das peças</div><div className="font-semibold text-red-600">- {BRL(totalCost)}</div></div>
                   <div><div className="text-xs text-slate-400 font-semibold uppercase">Deduções</div><div className="font-semibold text-red-600">- {BRL(ded)}</div></div>
                   <div><div className="text-xs text-slate-400 font-semibold uppercase">Custo entrega</div><div className="font-semibold text-red-600">- {BRL(cost)}</div></div>
                   <div><div className="text-xs text-slate-400 font-semibold uppercase">Líquido</div><div className="font-semibold text-emerald-600">{BRL(net)}</div></div>
