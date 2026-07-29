@@ -18,7 +18,7 @@ const NEW_COMPETITOR = '__new__';
 
 const inputCls = 'input';
 
-type PriceRow = CompetitionPrice & { competitor_ref?: Competitor | null };
+type PriceRow = CompetitionPrice;
 
 export default function Parts() {
   const [parts, setParts] = useState<Part[]>([]);
@@ -190,7 +190,7 @@ export default function Parts() {
     if (!editing) {
       // Part doesn't exist yet — keep this price locally; it's persisted
       // together with the part when the main "Salvar" is clicked.
-      const localRow: PriceRow = {
+      const localRow = {
         id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         part_id: '',
         competitor_id: competitorId || null,
@@ -201,7 +201,7 @@ export default function Parts() {
         notes: priceForm.notes || null,
         created_at: new Date().toISOString(),
         competitor_ref: competitors.find((c) => c.id === competitorId) ?? null,
-      };
+      } as PriceRow;
       setPriceRows((prev) => editingPrice ? prev.map((r) => (r.id === editingPrice.id ? { ...localRow, id: editingPrice.id } : r)) : [localRow, ...prev]);
       setPriceSaving(false);
       setPriceOpen(false);

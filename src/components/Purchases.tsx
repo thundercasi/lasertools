@@ -654,9 +654,11 @@ export default function Purchases() {
                 <Field label="Nº de parcelas">
                   <input type="number" min={1} className={inputCls} value={form.installment_count} onChange={(e) => setForm({ ...form, installment_count: Number(e.target.value) })} />
                 </Field>
-                <Field label="Intervalo (dias)">
-                  <input type="number" min={1} className={inputCls} value={form.installment_interval_days} onChange={(e) => setForm({ ...form, installment_interval_days: Number(e.target.value) })} />
-                </Field>
+                {form.installment_count > 1 && (
+                  <Field label="Intervalo (dias)">
+                    <input type="number" min={1} className={inputCls} value={form.installment_interval_days} onChange={(e) => setForm({ ...form, installment_interval_days: Number(e.target.value) })} />
+                  </Field>
+                )}
                 <Field label="Data da primeira parcela" hint={form.installment_count > 1 ? 'vencimento' : 'à vista'}>
                   <input
                     type="date"
