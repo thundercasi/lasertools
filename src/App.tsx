@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users,
-  Wallet, Search, Boxes, Menu, X, ClipboardList,
+  Wallet, Search, Boxes, Menu, X, ClipboardList, Wrench, Settings as SettingsIcon,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
 import Dashboard from './components/Dashboard';
 import Parts from './components/Parts';
+import MaintenanceScreen from './components/Maintenance';
+import Settings from './components/Settings';
 import Suppliers from './components/Suppliers';
 import Purchases from './components/Purchases';
 import Orders from './components/Orders';
@@ -17,11 +19,12 @@ import Competition from './components/Competition';
 
 type ViewId =
   | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases'
-  | 'sales' | 'customers' | 'financial' | 'payables' | 'competition';
+  | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance' | 'competition' | 'settings';
 
 const navItems: { id: ViewId; label: string; icon: typeof Package }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'parts', label: 'Peças', icon: Boxes },
+  { id: 'maintenance', label: 'Manutenções', icon: Wrench },
   { id: 'suppliers', label: 'Fornecedores', icon: Truck },
   { id: 'orders', label: 'Pedidos', icon: ClipboardList },
   { id: 'purchases', label: 'Compras', icon: ShoppingCart },
@@ -30,6 +33,7 @@ const navItems: { id: ViewId; label: string; icon: typeof Package }[] = [
   { id: 'financial', label: 'Contas a Receber', icon: Wallet },
   { id: 'payables', label: 'Contas a Pagar', icon: Wallet },
   { id: 'competition', label: 'Concorrentes', icon: Users },
+  { id: 'settings', label: 'Configurações', icon: SettingsIcon },
 ];
 
 export default function App() {
@@ -42,6 +46,7 @@ export default function App() {
     switch (view) {
       case 'dashboard': return <Dashboard />;
       case 'parts': return <Parts />;
+      case 'maintenance': return <MaintenanceScreen />;
       case 'suppliers': return <Suppliers />;
       case 'orders': return <Orders />;
       case 'purchases': return <Purchases />;
@@ -50,6 +55,7 @@ export default function App() {
       case 'financial': return <Financial />;
       case 'payables': return <Payables />;
       case 'competition': return <Competition />;
+      case 'settings': return <Settings />;
     }
   };
 

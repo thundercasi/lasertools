@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, ShoppingCart, Search, Plane, CheckCircle2, X as XIcon, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase, type Purchase, type Supplier, type Part, type PurchaseItem, money, BRL, formatDate } from '../lib/supabase';
+import { useUsdRate } from '../lib/useUsdRate';
 import { useSessionState } from '../lib/useSessionState';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 
@@ -17,7 +18,7 @@ const PURCHASE_STATUS = ['Pendente', 'Aguardando Entrega', 'Concluída'] as cons
 type PurchaseStatus = typeof PURCHASE_STATUS[number];
 
 const emptyForm = {
-  code: '', supplier_id: '', is_import: false, currency: 'BRL', exchange_rate: 1,
+  code: '', supplier_id: '', is_import: false, currency: 'BRL', exchange_rate: 0,
   iof_percent: 0, iof_value: 0, rate_confirmed: true,
   status: 'Pendente' as PurchaseStatus, payment_status: 'Pendente' as PaymentStatus,
   purchase_date: new Date().toISOString().slice(0, 10), notes: '',
@@ -27,6 +28,7 @@ const emptyForm = {
 };
 
 export default function Purchases() {
+  const usd = useUsdRate();
   const [items, setItems] = useState<Purchase[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
@@ -34,6 +36,14 @@ export default function Purchases() {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [form, setForm] = useSessionState('purchase:form', emptyForm);
+
+  // Auto-fill the exchange rate from the daily USD quote (+ spread) —
+  // only while the field hasn't been filled in yet (still 0).
+  useEffect(() => {
+    if (form.currency === 'USD' && Number(form.exchange_rate) === 0 && usd.effectiveRate) {
+      setForm((f) => (f.currency === 'USD' && Number(f.exchange_rate) === 0 ? { ...f, exchange_rate: usd.effectiveRate as number } : f));
+    }
+  }, [usd.effectiveRate, form.currency, form.exchange_rate, setForm]);
   const [rows, setRows] = useSessionState<ItemRow[]>('purchase:rows', [{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
   const [open, setOpen] = useSessionState('purchase:open', false);
   const [saving, setSaving] = useState(false);
@@ -205,6 +215,7 @@ export default function Purchases() {
     setError('');
     const validRows = rows.filter((r) => r.part_id);
     if (validRows.length === 0) { setError('Adicione ao menos uma peça à compra.'); return; }
+    if (form.currency === 'USD' && Number(form.exchange_rate) === 0) { setError('Informe a taxa de câmbio.'); return; }
     setSaving(true);
 
     try {
@@ -469,8 +480,14 @@ export default function Purchases() {
                         <option value="USD">USD ($)</option>
                       </select>
                     </Field>
-                    <Field label="Taxa de câmbio" hint={form.currency === 'BRL' ? '(não se aplica)' : ''}>
-                      <input type="number" step="0.0001" className={inputCls} value={form.exchange_rate} disabled={form.currency === 'BRL'} onChange={(e) => setForm({ ...form, exchange_rate: Number(e.target.value) })} />
+                    <Field label="Taxa de câmbio" hint={form.currency === 'BRL' ? '(não se aplica)' : usd.loading && Number(form.exchange_rate) === 0 ? 'buscando cotação do dia...' : ''}>
+                      <input
+                        type="number" step="0.0001" className={inputCls}
+                        value={form.exchange_rate === 0 ? '' : form.exchange_rate}
+                        placeholder={form.currency === 'USD' ? String(usd.effectiveRate ?? '') : ''}
+                        disabled={form.currency === 'BRL'}
+                        onChange={(e) => setForm({ ...form, exchange_rate: e.target.value === '' ? 0 : Number(e.target.value) })}
+                      />
                     </Field>
                     <div className="flex items-end">
                       <label className={`flex items-center gap-2.5 ${form.currency === 'BRL' ? 'cursor-default' : 'cursor-pointer'} pb-2.5`}>
@@ -567,7 +584,12 @@ export default function Purchases() {
                       }}
                     >
                       <option value="">— Selecione —</option>
-                      {parts.map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
+                      <optgroup label="Novas">
+                        {parts.filter((p) => p.condition === 'Novo').map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
+                      </optgroup>
+                      <optgroup label="Usadas">
+                        {parts.filter((p) => p.condition !== 'Novo').map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
+                      </optgroup>
                     </select>
                     <input
                       type="number" min={1} placeholder="Qtd"

@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { BRL } from '../lib/supabase';
 import { useLocalState } from '../lib/useLocalState';
+import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
 
 type OrderItem = {
@@ -28,7 +29,7 @@ const emptyHeader = {
 };
 
 const emptyRates = {
-  exchange_rate: 5,
+  exchange_rate: 0,
   freight_usd: 0,
   iof_percent: 0,
   import_tax_percent: 0,
@@ -83,6 +84,7 @@ function PctField({ label, value, onChange, disabled }: { label: string; value: 
 }
 
 export default function Orders() {
+  const usd = useUsdRate();
   const [header, setHeader] = useLocalState('orders:header', emptyHeader);
   const [rates, setRates] = useLocalState('orders:rates', emptyRates);
   const [items, setItems] = useLocalState<OrderItem[]>('orders:items', [newItem()]);
@@ -96,6 +98,14 @@ export default function Orders() {
     setHeader((h) => (h.proposal_date === today ? h : { ...h, proposal_date: today }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-fill the exchange rate from the daily USD quote (+ spread) —
+  // only while the field hasn't been filled in yet (still 0).
+  useEffect(() => {
+    if (Number(rates.exchange_rate) === 0 && usd.effectiveRate) {
+      setRates((r) => (Number(r.exchange_rate) === 0 ? { ...r, exchange_rate: usd.effectiveRate as number } : r));
+    }
+  }, [usd.effectiveRate, rates.exchange_rate, setRates]);
 
   const addItem = () => {
     if (items.length >= 10) return;

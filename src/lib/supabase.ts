@@ -14,6 +14,7 @@ export const supabase = createClient(url, anonKey, {
 export type Part = {
   id: string;
   sku: string;
+  part_number: string | null;
   name: string;
   description: string | null;
   category: string | null;
@@ -162,6 +163,25 @@ export type Installment = {
   supplier?: Supplier | null;
   sale?: Sale | null;
   purchase?: Purchase | null;
+};
+
+export type AppSettings = {
+  id: string;
+  usd_spread_percent: number;
+  usd_base_rate: number | null;
+  usd_rate_updated_at: string | null;
+  updated_at: string;
+};
+
+export type Maintenance = {
+  id: string;
+  part_id: string;
+  maintenance_date: string;
+  cost: number;
+  description: string;
+  provider: string | null;
+  created_at: string;
+  part?: Part | null;
 };
 
 export type Competitor = {

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3 } from 'lucide-react';
-import { supabase, type Part, type Competitor, type CompetitionPrice, BRL, formatDate } from '../lib/supabase';
+import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3, Wrench } from 'lucide-react';
+import { supabase, type Part, type Competitor, type CompetitionPrice, type Maintenance, BRL, money, formatDate } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 
 const empty = {
-  name: '', description: '', category: '', machine_model: '',
+  name: '', part_number: '', description: '', category: '', machine_model: '',
   condition: 'Novo', brand: '', stock_quantity: 0, unit_cost: 0,
   unit_price: 0, min_stock: 0,
 };
@@ -32,6 +32,7 @@ export default function Parts() {
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [priceRows, setPriceRows] = useState<PriceRow[]>([]);
+  const [maintenanceRows, setMaintenanceRows] = useState<Maintenance[]>([]);
   const [editingPrice, setEditingPrice] = useState<PriceRow | null>(null);
   const [priceForm, setPriceForm] = useState(emptyPrice);
   const [priceOpen, setPriceOpen] = useState(false);
@@ -56,6 +57,7 @@ export default function Parts() {
     if (!q) return parts;
     return parts.filter((p) =>
       p.name.toLowerCase().includes(q) ||
+      (p.part_number ?? '').toLowerCase().includes(q) ||
       (p.brand ?? '').toLowerCase().includes(q) ||
       (p.category ?? '').toLowerCase().includes(q)
     );
@@ -65,6 +67,7 @@ export default function Parts() {
     setEditing(null);
     setForm({ ...empty });
     setPriceRows([]);
+    setMaintenanceRows([]);
     setError('');
     setOpen(true);
   };
@@ -72,7 +75,7 @@ export default function Parts() {
   const openEdit = async (p: Part) => {
     setEditing(p);
     setForm({
-      name: p.name, description: p.description ?? '',
+      name: p.name, part_number: p.part_number ?? '', description: p.description ?? '',
       category: p.category ?? '', machine_model: p.machine_model ?? '',
       condition: p.condition ?? 'Novo', brand: p.brand ?? '',
       stock_quantity: Number(p.stock_quantity) || 0,
@@ -86,6 +89,12 @@ export default function Parts() {
       .eq('part_id', p.id)
       .order('observed_at', { ascending: false });
     setPriceRows((prices as PriceRow[]) ?? []);
+    const { data: maints } = await supabase
+      .from('maintenances')
+      .select('*')
+      .eq('part_id', p.id)
+      .order('maintenance_date', { ascending: false });
+    setMaintenanceRows((maints as Maintenance[]) ?? []);
     setError('');
     setOpen(true);
   };
@@ -99,6 +108,7 @@ export default function Parts() {
     setSaving(true);
     const payload = {
       name: form.name.trim(),
+      part_number: form.part_number.trim() || null,
       description: form.description || null,
       category: form.category || null,
       machine_model: form.machine_model || null,
@@ -267,7 +277,7 @@ export default function Parts() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input
             className="input pl-10"
-            placeholder="Buscar por nome, marca ou categoria..."
+            placeholder="Buscar por nome, part number, marca ou categoria..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -299,7 +309,10 @@ export default function Parts() {
                   const low = p.stock_quantity <= p.min_stock;
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition">
-                      <td className="td font-medium text-slate-900">{p.name}</td>
+                      <td className="td font-medium text-slate-900">
+                        {p.name}
+                        {p.part_number && <div className="text-xs font-normal text-slate-400">P/N: {p.part_number}</div>}
+                      </td>
                       <td className="td text-slate-600">{p.brand || '—'}</td>
                       <td className="td text-slate-600">{p.category || '—'}</td>
                       <td className="td">
@@ -334,6 +347,7 @@ export default function Parts() {
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+              <Field label="Part Number" hint="identificador da peça no mercado"><input className={inputCls} value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} /></Field>
               <Field label="Marca"><input className={inputCls} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></Field>
               <Field label="Categoria"><input className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
               <Field label="Modelo da máquina"><input className={inputCls} value={form.machine_model} onChange={(e) => setForm({ ...form, machine_model: e.target.value })} /></Field>
@@ -382,7 +396,7 @@ export default function Parts() {
                         <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
                         <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
                       </div>
-                      <div className="text-sm font-semibold text-slate-900 shrink-0">{BRL(pr.price)}</div>
+                      <div className="text-sm font-semibold text-slate-900 shrink-0">{money(pr.price, pr.currency)}</div>
                       <div className="flex gap-1 shrink-0">
                         <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
                         <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
@@ -392,6 +406,37 @@ export default function Parts() {
                 </div>
               )}
             </div>
+
+            {/* Maintenance history (read-only here — manage in the Manutenções module) */}
+            {editing && (
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Wrench size={16} className="text-slate-400" />
+                    <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Histórico de manutenções</span>
+                  </div>
+                  {maintenanceRows.length > 0 && (
+                    <span className="text-xs font-semibold text-slate-500">Total: {BRL(maintenanceRows.reduce((s, m) => s + Number(m.cost), 0))}</span>
+                  )}
+                </div>
+                {maintenanceRows.length === 0 ? (
+                  <p className="text-xs text-slate-400">Nenhuma manutenção registrada para esta peça.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {maintenanceRows.map((m) => (
+                      <div key={m.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-slate-900 truncate">{m.description}</div>
+                          <div className="text-xs text-slate-400">{formatDate(m.maintenance_date)}{m.provider ? ` · ${m.provider}` : ''}</div>
+                        </div>
+                        <div className="text-sm font-semibold text-slate-900 shrink-0">{BRL(m.cost)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-slate-400 mt-2">Para adicionar ou editar, use o módulo "Manutenções".</p>
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
@@ -421,8 +466,14 @@ export default function Parts() {
                 <input className={inputCls} value={priceForm.competitor} onChange={(e) => setPriceForm({ ...priceForm, competitor: e.target.value })} placeholder="Ex: Concorrente XYZ" autoFocus />
               </Field>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <Field label="Preço"><input type="number" step="0.01" className={inputCls} value={priceForm.price} onChange={(e) => setPriceForm({ ...priceForm, price: Number(e.target.value) })} /></Field>
+              <Field label="Moeda">
+                <select className={inputCls} value={priceForm.currency} onChange={(e) => setPriceForm({ ...priceForm, currency: e.target.value })}>
+                  <option value="BRL">BRL (R$)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </Field>
               <Field label="Data"><input type="date" className={inputCls} value={priceForm.observed_at} onChange={(e) => setPriceForm({ ...priceForm, observed_at: e.target.value })} /></Field>
             </div>
             <Field label="Observações"><textarea className={inputCls} rows={2} value={priceForm.notes} onChange={(e) => setPriceForm({ ...priceForm, notes: e.target.value })} /></Field>

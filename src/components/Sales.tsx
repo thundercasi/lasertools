@@ -429,13 +429,22 @@ export default function Sales() {
                         }}
                       >
                         <option value="">— Selecione —</option>
-                        {stockParts.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''} ({Number(p.stock_quantity)} em estoque)</option>
-                        ))}
+                        <optgroup label="Novas">
+                          {stockParts.filter((p) => p.condition === 'Novo').map((p) => (
+                            <option key={p.id} value={p.id}>({Number(p.stock_quantity)}) {p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Usadas">
+                          {stockParts.filter((p) => p.condition !== 'Novo').map((p) => (
+                            <option key={p.id} value={p.id}>({Number(p.stock_quantity)}) {p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
+                          ))}
+                        </optgroup>
                         {r.part_id && !stockParts.some((p) => p.id === r.part_id) && (() => {
                           const p = allParts.find((x) => x.id === r.part_id);
                           return p ? (
-                            <option value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''} (sem estoque)</option>
+                            <optgroup label={p.condition === 'Novo' ? 'Novas' : 'Usadas'}>
+                              <option value={p.id}>(0) {p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
+                            </optgroup>
                           ) : null;
                         })()}
                       </select>
