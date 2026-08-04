@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3, Wrench } from 'lucide-react';
-import { supabase, type Part, type Competitor, type CompetitionPrice, type Maintenance, BRL, money, formatDate } from '../lib/supabase';
+import { supabase, type Part, type Competitor, type CompetitionPrice, type Maintenance, BRL, USD, formatDate } from '../lib/supabase';
+import { useUsdRate } from '../lib/useUsdRate';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 
 const empty = {
@@ -21,6 +22,7 @@ const inputCls = 'input';
 type PriceRow = CompetitionPrice;
 
 export default function Parts() {
+  const usd = useUsdRate();
   const [parts, setParts] = useState<Part[]>([]);
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -390,19 +392,27 @@ export default function Parts() {
                 <p className="text-xs text-slate-400">Nenhum preço de concorrente cadastrado.</p>
               ) : (
                 <div className="space-y-2">
-                  {priceRows.map((pr) => (
-                    <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
-                        <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
+                  {priceRows.map((pr) => {
+                    const rate = usd.baseRate ?? usd.effectiveRate;
+                    const usdValue = pr.currency === 'USD' ? Number(pr.price) : (rate ? Number(pr.price) / rate : null);
+                    const brlValue = pr.currency === 'BRL' ? Number(pr.price) : (rate ? Number(pr.price) * rate : null);
+                    return (
+                      <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
+                          <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className={`text-sm font-semibold ${pr.currency === 'USD' ? 'text-slate-900' : 'text-slate-500'}`}>{usdValue != null ? USD(usdValue) : '—'}</div>
+                          <div className={`text-sm font-semibold ${pr.currency === 'BRL' ? 'text-slate-900' : 'text-slate-500'}`}>{brlValue != null ? BRL(brlValue) : '—'}</div>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
+                          <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
+                        </div>
                       </div>
-                      <div className="text-sm font-semibold text-slate-900 shrink-0">{money(pr.price, pr.currency)}</div>
-                      <div className="flex gap-1 shrink-0">
-                        <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
-                        <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
