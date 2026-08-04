@@ -210,7 +210,7 @@ export default function MaintenanceScreen() {
             </div>
             <Field label="Prestador / Técnico" hint="opcional"><input className={inputCls} value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} /></Field>
             <Field label="Descrição"><textarea className={inputCls} rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="O que foi feito na manutenção" /></Field>
-            <p className="text-xs text-slate-400">O custo é somado ao custo médio da peça no estoque automaticamente.</p>
+            <p className="text-xs text-slate-400">O custo é somado ao custo médio da peça no estoque e gera automaticamente um lançamento em Contas a Pagar.</p>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
               <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
@@ -221,7 +221,7 @@ export default function MaintenanceScreen() {
 
       {deleteId && (
         <Modal title="Confirmar exclusão" onClose={() => setDeleteId(null)}>
-          <ConfirmDelete message="Excluir esta manutenção? O custo será removido do custo médio da peça." onConfirm={remove} onCancel={() => setDeleteId(null)} />
+          <ConfirmDelete message="Excluir esta manutenção? O custo será removido do custo médio da peça e o lançamento em Contas a Pagar também será excluído." onConfirm={remove} onCancel={() => setDeleteId(null)} />
         </Modal>
       )}
     </div>

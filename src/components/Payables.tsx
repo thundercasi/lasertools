@@ -18,11 +18,11 @@ export default function Payables() {
     setLoading(true);
     let res = await supabase
       .from('installments')
-      .select('*, supplier:supplier_id(*), purchase:purchase_id(*)')
-      .eq('reference_type', 'purchase')
+      .select('*, supplier:supplier_id(*), purchase:purchase_id(*), maintenance:maintenance_id(*, part:part_id(*))')
+      .in('reference_type', ['purchase', 'maintenance'])
       .order('due_date', { ascending: true });
     if (res.error && /relationship.*schema cache/i.test(res.error.message)) {
-      res = await supabase.from('installments').select('*').eq('reference_type', 'purchase').order('due_date', { ascending: true });
+      res = await supabase.from('installments').select('*').in('reference_type', ['purchase', 'maintenance']).order('due_date', { ascending: true });
     }
     setItems((res.data as Installment[]) ?? []);
     setLoading(false);
@@ -44,6 +44,8 @@ export default function Payables() {
     if (q) {
       list = list.filter((i) =>
         (i.supplier?.name ?? '').toLowerCase().includes(q) ||
+        (i.maintenance?.part?.name ?? '').toLowerCase().includes(q) ||
+        (i.maintenance?.provider ?? '').toLowerCase().includes(q) ||
         String(i.installment_number).includes(q)
       );
     }
@@ -146,7 +148,7 @@ export default function Payables() {
         </div>
         <div className="relative sm:ml-auto sm:w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input className="input pl-10" placeholder="Buscar fornecedor..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="input pl-10" placeholder="Buscar fornecedor, peça ou prestador..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </div>
 
@@ -160,7 +162,7 @@ export default function Payables() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="th">Fornecedor</th>
+                  <th className="th">Origem</th>
                   <th className="th">Vencimento</th>
                   <th className="th">Parcela</th>
                   <th className="th">Status</th>
@@ -174,7 +176,16 @@ export default function Payables() {
                   const dueToday = isDueToday(i);
                   return (
                     <tr key={i.id} className="hover:bg-slate-50/50 transition">
-                      <td className="td font-medium text-slate-900">{i.supplier?.name ?? '—'}</td>
+                      <td className="td font-medium text-slate-900">
+                        {i.reference_type === 'maintenance' ? (
+                          <>
+                            <div>🔧 {i.maintenance?.part?.name ?? 'Manutenção'}</div>
+                            {i.maintenance?.provider && <div className="text-xs font-normal text-slate-400">{i.maintenance.provider}</div>}
+                          </>
+                        ) : (
+                          i.supplier?.name ?? '—'
+                        )}
+                      </td>
                       <td className="td text-slate-500">
                         <div className="flex items-center gap-1.5">
                           {formatDate(i.due_date)}
@@ -218,8 +229,12 @@ export default function Payables() {
           <div className="space-y-4">
             <div className="bg-slate-50 rounded-xl p-4 text-sm">
               <div className="flex justify-between">
-                <span className="text-slate-500">Fornecedor</span>
-                <span className="font-medium text-slate-900">{baixa.supplier?.name ?? '—'}</span>
+                <span className="text-slate-500">{baixa.reference_type === 'maintenance' ? 'Manutenção' : 'Fornecedor'}</span>
+                <span className="font-medium text-slate-900">
+                  {baixa.reference_type === 'maintenance'
+                    ? (baixa.maintenance?.part?.name ?? 'Manutenção') + (baixa.maintenance?.provider ? ` · ${baixa.maintenance.provider}` : '')
+                    : (baixa.supplier?.name ?? '—')}
+                </span>
               </div>
               <div className="flex justify-between mt-1">
                 <span className="text-slate-500">Parcela</span>

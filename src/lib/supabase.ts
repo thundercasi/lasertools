@@ -147,6 +147,7 @@ export type Installment = {
   reference_type: string;
   sale_id: string | null;
   purchase_id: string | null;
+  maintenance_id: string | null;
   customer_id: string | null;
   supplier_id: string | null;
   installment_number: number;
@@ -163,6 +164,7 @@ export type Installment = {
   supplier?: Supplier | null;
   sale?: Sale | null;
   purchase?: Purchase | null;
+  maintenance?: Maintenance | null;
 };
 
 export type AppSettings = {
