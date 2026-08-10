@@ -181,9 +181,7 @@ export default function Payables() {
                           <>
                             <div className="flex items-center gap-1.5">
                               🔧 {i.maintenance?.part?.name ?? 'Manutenção'}
-                              <Badge tone={i.maintenance?.part?.condition === 'Novo' ? 'green' : 'amber'}>
-                                {i.maintenance?.part?.condition === 'Novo' ? 'Novo' : 'Usado'}
-                              </Badge>
+                              {i.maintenance?.part?.brand && <span className="text-xs font-normal text-slate-400">— {i.maintenance.part.brand}</span>}
                             </div>
                             {i.maintenance?.provider && <div className="text-xs font-normal text-slate-400">{i.maintenance.provider}</div>}
                           </>
@@ -239,9 +237,7 @@ export default function Payables() {
                   {baixa.reference_type === 'maintenance'
                     ? <>
                         {baixa.maintenance?.part?.name ?? 'Manutenção'}
-                        <Badge tone={baixa.maintenance?.part?.condition === 'Novo' ? 'green' : 'amber'}>
-                          {baixa.maintenance?.part?.condition === 'Novo' ? 'Novo' : 'Usado'}
-                        </Badge>
+                        {baixa.maintenance?.part?.brand && <span className="text-slate-400 font-normal">— {baixa.maintenance.part.brand}</span>}
                         {baixa.maintenance?.provider && <span className="text-slate-400 font-normal">· {baixa.maintenance.provider}</span>}
                       </>
                     : (baixa.supplier?.name ?? '—')}

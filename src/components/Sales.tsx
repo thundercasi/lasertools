@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { Plus, Pencil, Trash2, Receipt, Search, Paperclip, FileText, X, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase, type Sale, type Customer, type SaleFile, type SaleItem, type Part, BRL, formatDate } from '../lib/supabase';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone } from './ui';
 import { useSessionState } from '../lib/useSessionState';
 
 const SALE_STATUS = ['Pendente', 'Em andamento', 'Concluída', 'Cancelada'] as const;
@@ -31,6 +31,7 @@ export default function Sales() {
   const [editing, setEditing] = useState<Sale | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [confirmSync, setConfirmSync] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -190,11 +191,12 @@ export default function Sales() {
     setFiles((prev) => prev.filter((x) => x.id !== f.id));
   };
 
-  const save = async () => {
+  const save = async (syncFinancial: boolean = true) => {
     setError('');
     const validRows = rows.filter((r) => r.part_id);
     if (validRows.length === 0) { setError('Adicione ao menos uma peça à venda.'); return; }
     if (!form.customer_id) { setError('Selecione um cliente.'); return; }
+    setConfirmSync(false);
     setSaving(true);
     try {
       const total = validRows.reduce((s, r) => s + r.quantity * r.unit_price, 0);
@@ -217,7 +219,9 @@ export default function Sales() {
       let saleId = editing?.id;
       let err;
       if (editing) {
-        ({ error: err } = await supabase.from('sales').update(payload).eq('id', editing.id));
+        ({ error: err } = syncFinancial
+          ? await supabase.from('sales').update(payload).eq('id', editing.id)
+          : await supabase.rpc('apply_update_skip_financial', { p_table: 'sales', p_id: editing.id, p_payload: payload }));
       } else {
         const { data: existing } = await supabase.from('sales').select('code');
         const maxNum = (existing ?? []).reduce((max, s: any) => {
@@ -605,9 +609,19 @@ export default function Sales() {
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
+              <button className="btn-primary" disabled={saving} onClick={() => (editing ? setConfirmSync(true) : save(true))}>{saving ? 'Salvando...' : 'Salvar'}</button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {confirmSync && (
+        <Modal title="Atualizar financeiro?" onClose={() => setConfirmSync(false)}>
+          <ConfirmFinancialSync
+            onSync={() => save(true)}
+            onSkip={() => save(false)}
+            onCancel={() => setConfirmSync(false)}
+          />
         </Modal>
       )}
 

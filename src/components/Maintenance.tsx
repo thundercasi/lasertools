@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Wrench, Search } from 'lucide-react';
 import { supabase, type Maintenance, type Part, BRL, formatDate } from '../lib/supabase';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync } from './ui';
 
 const inputCls = 'input';
 
@@ -20,6 +20,7 @@ export default function MaintenanceScreen() {
   const [form, setForm] = useState(empty);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmSync, setConfirmSync] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -75,9 +76,10 @@ export default function MaintenanceScreen() {
     setOpen(true);
   };
 
-  const save = async () => {
+  const save = async (syncFinancial: boolean = true) => {
     if (!form.part_id) { setError('Selecione a peça.'); return; }
     if (!form.description.trim()) { setError('Descreva o que foi feito na manutenção.'); return; }
+    setConfirmSync(false);
     setSaving(true);
     const payload = {
       part_id: form.part_id,
@@ -89,7 +91,9 @@ export default function MaintenanceScreen() {
     // part_id is intentionally never changed on edit — the trigger that
     // rolls the cost into the part's average cost assumes the same part.
     const { error: err } = editing
-      ? await supabase.from('maintenances').update({ ...payload, part_id: editing.part_id }).eq('id', editing.id)
+      ? (syncFinancial
+          ? await supabase.from('maintenances').update({ ...payload, part_id: editing.part_id }).eq('id', editing.id)
+          : await supabase.rpc('apply_update_skip_financial', { p_table: 'maintenances', p_id: editing.id, p_payload: { ...payload, part_id: editing.part_id } }))
       : await supabase.from('maintenances').insert(payload);
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -213,9 +217,19 @@ export default function MaintenanceScreen() {
             <p className="text-xs text-slate-400">O custo é somado ao custo médio da peça no estoque e gera automaticamente um lançamento em Contas a Pagar.</p>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
+              <button className="btn-primary" disabled={saving} onClick={() => (editing ? setConfirmSync(true) : save(true))}>{saving ? 'Salvando...' : 'Salvar'}</button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {confirmSync && (
+        <Modal title="Atualizar financeiro?" onClose={() => setConfirmSync(false)}>
+          <ConfirmFinancialSync
+            onSync={() => save(true)}
+            onSkip={() => save(false)}
+            onCancel={() => setConfirmSync(false)}
+          />
         </Modal>
       )}
 

@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, ShoppingCart, Search, Plane, CheckCircle2, X as X
 import { supabase, type Purchase, type Supplier, type Part, type PurchaseItem, money, BRL, formatDate } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { useSessionState } from '../lib/useSessionState';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone } from './ui';
 
 type ItemRow = { part_id: string; quantity: number; unit_cost: number; serial_number: string };
 const inputCls = 'input';
@@ -47,6 +47,7 @@ export default function Purchases() {
   const [rows, setRows] = useSessionState<ItemRow[]>('purchase:rows', [{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
   const [open, setOpen] = useSessionState('purchase:open', false);
   const [saving, setSaving] = useState(false);
+  const [confirmSync, setConfirmSync] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -211,11 +212,12 @@ export default function Purchases() {
   const grandTotal = subtotalBRL + importTax;
   const extraCostsBRL = toBRL(foreignExtras) + importTax;
 
-  const save = async () => {
+  const save = async (syncFinancial: boolean = true) => {
     setError('');
     const validRows = rows.filter((r) => r.part_id);
     if (validRows.length === 0) { setError('Adicione ao menos uma peça à compra.'); return; }
     if (form.currency === 'USD' && Number(form.exchange_rate) === 0) { setError('Informe a taxa de câmbio.'); return; }
+    setConfirmSync(false);
     setSaving(true);
 
     try {
@@ -247,7 +249,9 @@ export default function Purchases() {
 
       let purchaseId = editing?.id;
       if (editing) {
-        const { error: e } = await supabase.from('purchases').update(payload).eq('id', editing.id);
+        const { error: e } = syncFinancial
+          ? await supabase.from('purchases').update(payload).eq('id', editing.id)
+          : await supabase.rpc('apply_update_skip_financial', { p_table: 'purchases', p_id: editing.id, p_payload: payload });
         if (e) { setError(e.message); return; }
 
         // Reverse the stock/cost impact of the OLD items of this purchase
@@ -697,9 +701,19 @@ export default function Purchases() {
 
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={closeForm}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
+              <button className="btn-primary" disabled={saving} onClick={() => (editing ? setConfirmSync(true) : save(true))}>{saving ? 'Salvando...' : 'Salvar'}</button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {confirmSync && (
+        <Modal title="Atualizar financeiro?" onClose={() => setConfirmSync(false)}>
+          <ConfirmFinancialSync
+            onSync={() => save(true)}
+            onSkip={() => save(false)}
+            onCancel={() => setConfirmSync(false)}
+          />
         </Modal>
       )}
 

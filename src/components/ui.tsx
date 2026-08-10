@@ -126,6 +126,34 @@ export function ConfirmDelete({
   );
 }
 
+// Asked when saving an EDIT to a purchase/sale/maintenance — lets the
+// user choose whether this save should also regenerate the linked
+// financial installments (Contas a Receber/Pagar), or just update the
+// record itself (e.g. when only a status field changed).
+export function ConfirmFinancialSync({
+  onSync, onSkip, onCancel,
+}: {
+  onSync: () => void;
+  onSkip: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-600">
+        Deseja também atualizar o financeiro (parcelas em Contas a Receber/Pagar) com essas mudanças?
+      </p>
+      <p className="text-xs text-slate-400">
+        Se você só alterou um status ou outro detalhe sem impacto financeiro, escolha "Não" — as parcelas já lançadas continuam como estão.
+      </p>
+      <div className="flex justify-end gap-2 flex-wrap">
+        <button className="btn-secondary" onClick={onCancel}>Cancelar</button>
+        <button className="btn-secondary" onClick={onSkip}>Não, só salvar</button>
+        <button className="btn-primary" onClick={onSync}>Sim, atualizar financeiro</button>
+      </div>
+    </div>
+  );
+}
+
 export const statusTone = (status: string): 'slate' | 'green' | 'amber' | 'red' | 'blue' => {
   const s = status.toLowerCase();
   if (s.includes('paid') || s.includes('pago') || s.includes('completed') || s.includes('complet')) return 'green';
