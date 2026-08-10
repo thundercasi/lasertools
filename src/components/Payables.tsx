@@ -179,7 +179,12 @@ export default function Payables() {
                       <td className="td font-medium text-slate-900">
                         {i.reference_type === 'maintenance' ? (
                           <>
-                            <div>🔧 {i.maintenance?.part?.name ?? 'Manutenção'}</div>
+                            <div className="flex items-center gap-1.5">
+                              🔧 {i.maintenance?.part?.name ?? 'Manutenção'}
+                              <Badge tone={i.maintenance?.part?.condition === 'Novo' ? 'green' : 'amber'}>
+                                {i.maintenance?.part?.condition === 'Novo' ? 'Novo' : 'Usado'}
+                              </Badge>
+                            </div>
                             {i.maintenance?.provider && <div className="text-xs font-normal text-slate-400">{i.maintenance.provider}</div>}
                           </>
                         ) : (
@@ -230,9 +235,15 @@ export default function Payables() {
             <div className="bg-slate-50 rounded-xl p-4 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">{baixa.reference_type === 'maintenance' ? 'Manutenção' : 'Fornecedor'}</span>
-                <span className="font-medium text-slate-900">
+                <span className="font-medium text-slate-900 inline-flex items-center gap-1.5">
                   {baixa.reference_type === 'maintenance'
-                    ? (baixa.maintenance?.part?.name ?? 'Manutenção') + (baixa.maintenance?.provider ? ` · ${baixa.maintenance.provider}` : '')
+                    ? <>
+                        {baixa.maintenance?.part?.name ?? 'Manutenção'}
+                        <Badge tone={baixa.maintenance?.part?.condition === 'Novo' ? 'green' : 'amber'}>
+                          {baixa.maintenance?.part?.condition === 'Novo' ? 'Novo' : 'Usado'}
+                        </Badge>
+                        {baixa.maintenance?.provider && <span className="text-slate-400 font-normal">· {baixa.maintenance.provider}</span>}
+                      </>
                     : (baixa.supplier?.name ?? '—')}
                 </span>
               </div>
