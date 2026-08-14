@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { supabase, type Part, type Sale, type Installment, BRL, formatDate } from '../lib/supabase';
 import { StatCard, Modal, Field } from './ui';
+import FinancialTimeline from './FinancialTimeline';
 
 export default function Dashboard() {
   const [parts, setParts] = useState<Part[]>([]);
@@ -147,6 +148,10 @@ export default function Dashboard() {
           <div className="mt-3 text-3xl font-bold text-slate-900">{criticalStock.length}</div>
           <div className="mt-1 text-xs text-slate-400">peça{criticalStock.length !== 1 ? 's' : ''} abaixo do mínimo</div>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <FinancialTimeline />
       </div>
 
       {/* Collection alerts */}

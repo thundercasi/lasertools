@@ -11,11 +11,13 @@ type OrderItem = {
   id: string;
   description: string;
   qty: number;
+  is_import: boolean;
   cost_usd: number;
+  cost_brl: number;
 };
 
 const newItem = (): OrderItem => ({
-  id: crypto.randomUUID(), description: '', qty: 1, cost_usd: 0,
+  id: crypto.randomUUID(), description: '', qty: 1, is_import: false, cost_usd: 0, cost_brl: 0,
 });
 
 const emptyHeader = {
@@ -115,6 +117,36 @@ export default function Orders() {
   const updateItem = (id: string, patch: Partial<OrderItem>) =>
     setItems((r) => r.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
+  // Toggling "Importação" on: auto-fills R$ from the USD cost already
+  // typed (if any), using the day's exchange rate — only while R$ is
+  // still blank. Toggling off: clears USD (não se aplica), keeps R$ as-is
+  // so the user can still adjust the domestic cost directly.
+  const setItemImport = (id: string, checked: boolean) => {
+    setItems((prev) => prev.map((i) => {
+      if (i.id !== id) return i;
+      if (checked) {
+        const autoBrl = num(i.cost_brl) === 0 && num(i.cost_usd) > 0 && rates.exchange_rate
+          ? Number((i.cost_usd * rates.exchange_rate).toFixed(2))
+          : i.cost_brl;
+        return { ...i, is_import: true, cost_brl: autoBrl };
+      }
+      return { ...i, is_import: false, cost_usd: 0 };
+    }));
+  };
+
+  // Typing the USD cost on an import item auto-fills R$ (while it's
+  // still blank) using the day's exchange rate — never overwrites a
+  // value the user already entered manually.
+  const updateItemCostUsd = (id: string, v: number) => {
+    setItems((prev) => prev.map((i) => {
+      if (i.id !== id) return i;
+      const autoBrl = i.is_import && num(i.cost_brl) === 0 && v > 0 && rates.exchange_rate
+        ? Number((v * rates.exchange_rate).toFixed(2))
+        : i.cost_brl;
+      return { ...i, cost_usd: v, cost_brl: autoBrl };
+    }));
+  };
+
   const clearAll = () => {
     setHeader(emptyHeader);
     setRates(emptyRates);
@@ -129,22 +161,24 @@ export default function Orders() {
   const denom = 1 - otherDeductionsPct - marginPct;
 
   const totalCostUSD = useMemo(
-    () => items.reduce((s, i) => s + num(i.qty) * num(i.cost_usd), 0),
+    () => items.reduce((s, i) => s + (i.is_import ? num(i.qty) * num(i.cost_usd) : 0), 0),
     [items]
   );
 
   const rows = useMemo(() => items.map((i) => {
-    const rowCostUSD = num(i.qty) * num(i.cost_usd);
-    const rowCostBRL = rowCostUSD * rates.exchange_rate;
+    const qty = num(i.qty);
+    const isImp = !!i.is_import;
+    const rowCostUSD = isImp ? qty * num(i.cost_usd) : 0;
+    const rowCostBRL = qty * num(i.cost_brl);
     const share = totalCostUSD > 0 ? rowCostUSD / totalCostUSD : 0;
-    const freightBRL = share * rates.freight_usd * rates.exchange_rate;
-    const iofBRL = rowCostBRL * (rates.iof_percent / 100);
-    const importTaxBRL = rowCostBRL * (rates.import_tax_percent / 100);
+    const freightBRL = isImp ? share * rates.freight_usd * rates.exchange_rate : 0;
+    const iofBRL = isImp ? rowCostBRL * (rates.iof_percent / 100) : 0;
+    const importTaxBRL = isImp ? rowCostBRL * (rates.import_tax_percent / 100) : 0;
     const taxRateado = iofBRL + importTaxBRL;
     const custoFinal = rowCostBRL + freightBRL + taxRateado;
     const precoVenda = denom > 0 ? custoFinal / denom : custoFinal;
     const lucroLiq = precoVenda * marginPct;
-    return { ...i, rowCostUSD, freightBRL, taxRateado, custoFinal, precoVenda, lucroLiq };
+    return { ...i, rowCostUSD, rowCostBRL, freightBRL, taxRateado, custoFinal, precoVenda, lucroLiq };
   }), [items, rates, totalCostUSD, denom, marginPct]);
 
   const totalCusto = rows.reduce((s, r) => s + r.custoFinal, 0);
@@ -238,12 +272,14 @@ export default function Orders() {
             </button>
           </div>
           <div className="overflow-x-auto -mx-6">
-            <table className="w-full min-w-[900px]">
+            <table className="w-full min-w-[1100px]">
               <thead>
                 <tr className="border-b border-slate-200">
                   <th className="th">Descrição</th>
+                  <th className="th text-center">Import.</th>
                   <th className="th text-right">Qtd</th>
                   <th className="th text-right">Custo USD</th>
+                  <th className="th text-right">Custo R$</th>
                   <th className="th text-right">Frete Rateado</th>
                   <th className="th text-right">Imp. Rateado</th>
                   <th className="th text-right">Custo Final</th>
@@ -257,8 +293,24 @@ export default function Orders() {
                 {rows.map((r) => (
                   <tr key={r.id}>
                     <td className="td"><input className={inputCls} value={r.description} onChange={(e) => updateItem(r.id, { description: e.target.value })} /></td>
+                    <td className="td px-2 text-center">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        checked={r.is_import}
+                        onChange={(e) => setItemImport(r.id, e.target.checked)}
+                      />
+                    </td>
                     <td className="td px-2 w-24"><NumField min={0} className={`${inputCls} text-right`} value={r.qty} onChange={(v) => updateItem(r.id, { qty: v })} /></td>
-                    <td className="td px-2 w-32"><NumField step="0.01" className={`${inputCls} text-right`} value={r.cost_usd} onChange={(v) => updateItem(r.id, { cost_usd: v })} /></td>
+                    <td className="td px-2 w-32">
+                      <NumField
+                        step="0.01"
+                        className={`${inputCls} text-right ${r.is_import ? '' : 'opacity-50'}`}
+                        value={r.is_import ? r.cost_usd : 0}
+                        onChange={(v) => updateItemCostUsd(r.id, v)}
+                      />
+                    </td>
+                    <td className="td px-2 w-32"><NumField step="0.01" className={`${inputCls} text-right`} value={r.cost_brl} onChange={(v) => updateItem(r.id, { cost_brl: v })} /></td>
                     <td className="td text-right text-slate-600">{BRL(r.freightBRL)}</td>
                     <td className="td text-right text-slate-600">{BRL(r.taxRateado)}</td>
                     <td className="td text-right font-medium text-slate-800">{BRL(r.custoFinal)}</td>
@@ -271,7 +323,7 @@ export default function Orders() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-200 font-bold text-slate-900">
-                  <td className="td" colSpan={5}>TOTAL GERAL</td>
+                  <td className="td" colSpan={7}>TOTAL GERAL</td>
                   <td className="td text-right">{BRL(totalCusto)}</td>
                   <td className="td text-right">{BRL(totalVendaBruto)}</td>
                   <td className="td text-right">{BRL(totalVendaBruto)}</td>
