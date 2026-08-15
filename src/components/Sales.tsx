@@ -235,7 +235,8 @@ export default function Sales() {
       }
       if (err) { setError(err.message); return; }
 
-      // Save sale items + decrement stock
+      // Save sale items — stock is now recomputed automatically by the
+      // database (trigger on sale_items), so no manual decrement here.
       if (saleId) {
         await supabase.from('sale_items').delete().eq('sale_id', saleId);
         for (const r of validRows) {
@@ -247,11 +248,6 @@ export default function Sales() {
             serial_number: r.serial_number || null,
           });
           if (ie2) { setError(ie2.message); return; }
-          // Decrement stock
-          if (part) {
-            const newStock = Math.max(0, Number(part.stock_quantity) - r.quantity);
-            await supabase.from('parts').update({ stock_quantity: newStock }).eq('id', r.part_id);
-          }
         }
       }
       setOpen(false);

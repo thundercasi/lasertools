@@ -312,13 +312,16 @@ export default function Purchases() {
         workingParts.set(r.part_id, { stock: totalQty, cost: avgCost });
       }
 
-      // Persist only the parts whose stock or cost actually changed.
+      // Persist only unit_cost — stock_quantity is now recomputed
+      // automatically by the database (trigger on purchase_items), so we
+      // never write it here. The "stock" tracked in workingParts above is
+      // still used as the weighting input for the average-cost formula,
+      // it's just internal to this calculation now.
       for (const [partId, w] of workingParts) {
         const original = parts.find((p) => p.id === partId);
         if (!original) continue;
-        if (w.stock !== Number(original.stock_quantity) || w.cost !== Number(original.unit_cost)) {
+        if (w.cost !== Number(original.unit_cost)) {
           await supabase.from('parts').update({
-            stock_quantity: w.stock,
             unit_cost: w.cost,
             purchase_date: form.purchase_date,
           }).eq('id', partId);

@@ -362,7 +362,9 @@ export default function Parts() {
             </div>
             <Field label="Descrição"><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
             <div className="grid sm:grid-cols-4 gap-4">
-              <Field label="Estoque"><input type="number" className={inputCls} value={form.stock_quantity} onChange={(e) => setForm({ ...form, stock_quantity: Number(e.target.value) })} /></Field>
+              <Field label="Estoque" hint="calculado automaticamente (compras - vendas)">
+                <input type="number" className={`${inputCls} opacity-60 cursor-not-allowed`} value={form.stock_quantity} disabled readOnly />
+              </Field>
               <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
               <Field label="Custo unit. (R$)"><input type="number" step="0.01" className={inputCls} value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: Number(e.target.value) })} /></Field>
               <Field label="Preço unit. (R$)"><input type="number" step="0.01" className={inputCls} value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: Number(e.target.value) })} /></Field>
