@@ -8,7 +8,7 @@ import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFina
 type ItemRow = { part_id: string; quantity: number; unit_cost: number; serial_number: string };
 const inputCls = 'input';
 
-const PAYMENT_METHODS = ['PIX', 'Cartão', 'Boleto'] as const;
+const PAYMENT_METHODS = ['PIX', 'Cartão', 'Boleto', 'Troca/Permuta'] as const;
 type PaymentMethod = typeof PAYMENT_METHODS[number];
 
 const PAYMENT_STATUS = ['Pendente', 'Concluída'] as const;
@@ -24,6 +24,7 @@ const emptyForm = {
   purchase_date: new Date().toISOString().slice(0, 10), notes: '',
   payment_method: 'PIX' as PaymentMethod, first_installment_date: '',
   installment_count: 1, installment_interval_days: 30,
+  related_sale_id: '',
   freight: 0, other_expenses: 0, import_tax: 0,
 };
 
@@ -31,6 +32,7 @@ export default function Purchases() {
   const usd = useUsdRate();
   const [items, setItems] = useState<Purchase[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [salesList, setSalesList] = useState<{ id: string; code: string; customer_name: string }[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -70,16 +72,18 @@ export default function Purchases() {
     setLoading(true);
     setLoadError('');
     try {
-      const [sRes, ptRes] = await Promise.all([
+      const [sRes, ptRes, salesRes] = await Promise.all([
         supabase.from('suppliers').select('*').order('name'),
         supabase.from('parts').select('*').order('name'),
+        supabase.from('sales').select('id, code, customer:customer_id(name)').order('sale_date', { ascending: false }).limit(300),
       ]);
       setSuppliers((sRes.data as Supplier[]) ?? []);
       setParts((ptRes.data as Part[]) ?? []);
+      setSalesList(((salesRes.data as any[]) ?? []).map((s) => ({ id: s.id, code: s.code, customer_name: s.customer?.name ?? '—' })));
 
       // Try the nested relation first; fall back to a flat query if the
       // PostgREST schema cache hasn't picked up the foreign key yet.
-      let pRes = await supabase.from('purchases').select('*, supplier(*)').order('purchase_date', { ascending: false });
+      let pRes = await supabase.from('purchases').select('*, supplier(*), related_sale:related_sale_id(code, customer:customer_id(name))').order('purchase_date', { ascending: false });
       if (pRes.error && /relationship.*schema cache/i.test(pRes.error.message)) {
         pRes = await supabase.from('purchases').select('*').order('purchase_date', { ascending: false });
       }
@@ -152,6 +156,7 @@ export default function Purchases() {
       purchase_date: p.purchase_date, notes: p.notes ?? '',
       payment_method: (PAYMENT_METHODS.includes(p.payment_method as PaymentMethod) ? p.payment_method : 'PIX') as PaymentMethod,
       first_installment_date: p.first_installment_date ?? '',
+      related_sale_id: p.related_sale_id ?? '',
       installment_count: Number(p.installment_count) || 1,
       installment_interval_days: Number(p.installment_interval_days) || 30,
       freight: Number(p.freight) || 0,
@@ -239,6 +244,7 @@ export default function Purchases() {
         installment_count: Number(form.installment_count) || 1,
         installment_interval_days: Number(form.installment_interval_days) || 30,
         first_installment_date: Number(form.installment_count) > 1 ? (form.first_installment_date || null) : null,
+        related_sale_id: form.related_sale_id || null,
         notes: form.notes || null,
       };
 
@@ -418,6 +424,11 @@ export default function Purchases() {
                       <tr key={`${p.id}-expanded`} className="bg-slate-50/60">
                         <td></td>
                         <td colSpan={7} className="px-5 py-3">
+                          {p.payment_method === 'Troca/Permuta' && (
+                            <div className="text-xs text-sky-700 bg-sky-50 rounded-lg px-2.5 py-1.5 mb-2 inline-block">
+                              🔄 Troca/Permuta{p.related_sale ? ` — venda ${p.related_sale.code} (${p.related_sale.customer?.name ?? '—'})` : ''}
+                            </div>
+                          )}
                           {expandedLoading === p.id ? (
                             <div className="text-xs text-slate-400 py-2">Carregando peças...</div>
                           ) : (expandedItems[p.id]?.length ?? 0) === 0 ? (
@@ -680,6 +691,14 @@ export default function Purchases() {
                     {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </Field>
+                {form.payment_method === 'Troca/Permuta' && (
+                  <Field label="Venda de origem" hint="opcional — rastreabilidade">
+                    <select className={inputCls} value={form.related_sale_id} onChange={(e) => setForm({ ...form, related_sale_id: e.target.value })}>
+                      <option value="">— Nenhuma —</option>
+                      {salesList.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.customer_name}</option>)}
+                    </select>
+                  </Field>
+                )}
                 <Field label="Nº de parcelas">
                   <input type="number" min={1} className={inputCls} value={form.installment_count} onChange={(e) => setForm({ ...form, installment_count: Number(e.target.value) })} />
                 </Field>

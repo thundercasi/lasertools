@@ -22,6 +22,7 @@ export type Part = {
   condition: string;
   brand: string | null;
   stock_quantity: number;
+  in_maintenance: number;
   unit_cost: number;
   unit_price: number;
   min_stock: number;
@@ -90,10 +91,12 @@ export type Purchase = {
   installment_count: number;
   installment_interval_days: number;
   first_installment_date: string | null;
+  related_sale_id: string | null;
   notes: string | null;
   created_at: string;
   supplier?: Supplier | null;
   purchase_items?: PurchaseItem[];
+  related_sale?: Sale | null;
 };
 
 export type SaleItem = {
@@ -182,6 +185,7 @@ export type Maintenance = {
   cost: number;
   description: string;
   provider: string | null;
+  status: string;
   created_at: string;
   part?: Part | null;
 };

@@ -300,7 +300,8 @@ export default function Parts() {
                   <th className="th">Marca</th>
                   <th className="th">Categoria</th>
                   <th className="th">Estado</th>
-                  <th className="th text-right">Estoque</th>
+                  <th className="th text-right">Disponível</th>
+                  <th className="th text-right">Em manut.</th>
                   <th className="th text-right">Custo</th>
                   <th className="th text-right">Preço</th>
                   <th className="th text-right">Ações</th>
@@ -325,6 +326,11 @@ export default function Parts() {
                           {low && <AlertTriangle size={13} />}
                           {p.stock_quantity}
                         </span>
+                      </td>
+                      <td className="td text-right">
+                        {Number(p.in_maintenance) > 0
+                          ? <span className="inline-flex items-center gap-1 text-amber-600 font-medium"><Wrench size={12} />{p.in_maintenance}</span>
+                          : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="td text-right text-slate-600">{BRL(p.unit_cost)}</td>
                       <td className="td text-right font-semibold text-slate-900">{BRL(p.unit_price)}</td>
@@ -362,7 +368,7 @@ export default function Parts() {
             </div>
             <Field label="Descrição"><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
             <div className="grid sm:grid-cols-4 gap-4">
-              <Field label="Estoque" hint="calculado automaticamente (compras - vendas)">
+              <Field label="Disponível" hint="calculado (compras - vendas - manutenções)">
                 <input type="number" className={`${inputCls} opacity-60 cursor-not-allowed`} value={form.stock_quantity} disabled readOnly />
               </Field>
               <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>

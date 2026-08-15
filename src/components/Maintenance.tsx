@@ -5,9 +5,11 @@ import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFina
 
 const inputCls = 'input';
 
+const MAINTENANCE_STATUS = ['Em andamento', 'Concluída'] as const;
+
 const empty = {
   part_id: '', maintenance_date: new Date().toISOString().slice(0, 10),
-  cost: 0, description: '', provider: '',
+  cost: 0, description: '', provider: '', status: 'Em andamento' as string,
 };
 
 export default function MaintenanceScreen() {
@@ -71,6 +73,7 @@ export default function MaintenanceScreen() {
       cost: Number(m.cost) || 0,
       description: m.description ?? '',
       provider: m.provider ?? '',
+      status: m.status ?? 'Em andamento',
     });
     setError('');
     setOpen(true);
@@ -87,6 +90,7 @@ export default function MaintenanceScreen() {
       cost: Number(form.cost) || 0,
       description: form.description.trim(),
       provider: form.provider.trim() || null,
+      status: form.status,
     };
     // part_id is intentionally never changed on edit — the trigger that
     // rolls the cost into the part's average cost assumes the same part.
@@ -151,6 +155,7 @@ export default function MaintenanceScreen() {
                   <th className="th">Data</th>
                   <th className="th">Descrição</th>
                   <th className="th">Prestador</th>
+                  <th className="th">Status</th>
                   <th className="th text-right">Custo</th>
                   <th className="th text-right">Ações</th>
                 </tr>
@@ -166,6 +171,9 @@ export default function MaintenanceScreen() {
                     <td className="td text-slate-500">{formatDate(m.maintenance_date)}</td>
                     <td className="td text-slate-600 max-w-xs truncate">{m.description}</td>
                     <td className="td text-slate-500">{m.provider || '—'}</td>
+                    <td className="td">
+                      <Badge tone={m.status === 'Concluída' ? 'green' : 'amber'}>{m.status ?? 'Em andamento'}</Badge>
+                    </td>
                     <td className="td text-right font-semibold text-slate-900">{BRL(m.cost)}</td>
                     <td className="td">
                       <div className="flex justify-end gap-1">
@@ -178,7 +186,7 @@ export default function MaintenanceScreen() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-200 font-bold text-slate-900">
-                  <td className="td" colSpan={5}>TOTAL {query || conditionFilter !== 'Todas' ? '(filtrado)' : ''}</td>
+                  <td className="td" colSpan={6}>TOTAL {query || conditionFilter !== 'Todas' ? '(filtrado)' : ''}</td>
                   <td className="td text-right">{BRL(totalCost)}</td>
                   <td className="td"></td>
                 </tr>
@@ -212,7 +220,14 @@ export default function MaintenanceScreen() {
               <Field label="Data"><input type="date" className={inputCls} value={form.maintenance_date} onChange={(e) => setForm({ ...form, maintenance_date: e.target.value })} /></Field>
               <Field label="Custo (R$)"><input type="number" step="0.01" className={inputCls} value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} /></Field>
             </div>
-            <Field label="Prestador / Técnico" hint="opcional"><input className={inputCls} value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Prestador / Técnico" hint="opcional"><input className={inputCls} value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} /></Field>
+              <Field label="Status" hint="enquanto em andamento, a peça fica reservada">
+                <select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  {MAINTENANCE_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+            </div>
             <Field label="Descrição"><textarea className={inputCls} rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="O que foi feito na manutenção" /></Field>
             <p className="text-xs text-slate-400">O custo é somado ao custo médio da peça no estoque e gera automaticamente um lançamento em Contas a Pagar.</p>
             <div className="flex justify-end gap-2 pt-2">
