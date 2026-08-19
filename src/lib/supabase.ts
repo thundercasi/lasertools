@@ -126,6 +126,7 @@ export type Sale = {
   code: string;
   customer_id: string | null;
   status: string;
+  payment_status: string;
   sale_date: string;
   total_amount: number;
   currency: string;

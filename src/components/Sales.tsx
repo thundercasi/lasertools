@@ -312,6 +312,7 @@ export default function Sales() {
                   <th className="th">Data</th>
                   <th className="th">Parcelas</th>
                   <th className="th">Status</th>
+                  <th className="th">Pagamento</th>
                   <th className="th text-right">Total</th>
                   <th className="th text-right">Líquido</th>
                   <th className="th text-right">Ações</th>
@@ -333,6 +334,11 @@ export default function Sales() {
                         <td className="td text-slate-500">{formatDate(s.sale_date)}</td>
                         <td className="td text-slate-600">{s.installment_count}x</td>
                         <td className="td"><Badge tone={statusTone(s.status)}>{statusLabel(s.status)}</Badge></td>
+                        <td className="td">
+                          <Badge tone={s.payment_status === 'Concluída' ? 'green' : s.payment_status === 'Parcial' ? 'blue' : 'amber'}>
+                            {s.payment_status ?? 'Pendente'}
+                          </Badge>
+                        </td>
                         <td className="td text-right font-semibold text-slate-900">{BRL(t)}</td>
                         <td className="td text-right text-slate-600">{BRL(net)}</td>
                         <td className="td">
@@ -345,7 +351,7 @@ export default function Sales() {
                       {expandedId === s.id && (
                         <tr className="bg-slate-50/60">
                           <td></td>
-                          <td colSpan={7} className="px-5 py-3">
+                          <td colSpan={8} className="px-5 py-3">
                             {expandedLoading === s.id ? (
                               <div className="text-xs text-slate-400 py-2">Carregando peças...</div>
                             ) : (expandedItems[s.id]?.length ?? 0) === 0 ? (

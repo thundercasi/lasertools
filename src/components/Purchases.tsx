@@ -11,7 +11,7 @@ const inputCls = 'input';
 const PAYMENT_METHODS = ['PIX', 'Cartão', 'Boleto', 'Troca/Permuta'] as const;
 type PaymentMethod = typeof PAYMENT_METHODS[number];
 
-const PAYMENT_STATUS = ['Pendente', 'Concluída'] as const;
+const PAYMENT_STATUS = ['Pendente', 'Parcial', 'Concluída'] as const;
 type PaymentStatus = typeof PAYMENT_STATUS[number];
 
 const PURCHASE_STATUS = ['Pendente', 'Aguardando Entrega', 'Concluída'] as const;
@@ -234,7 +234,8 @@ export default function Purchases() {
         iof: Number(form.iof_value),
         rate_confirmed: form.currency === 'BRL' ? true : form.rate_confirmed,
         status: form.status,
-        payment_status: form.payment_status,
+        // payment_status is intentionally NOT sent — it's derived from the
+        // installments by a DB trigger; writing it here would overwrite it.
         purchase_date: form.purchase_date,
         total_amount: grandTotal,
         freight: freight,
@@ -409,7 +410,7 @@ export default function Purchases() {
                       <td className="td text-slate-600">{p.payment_method}</td>
                       <td className="td"><Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge></td>
                       <td className="td">
-                        <Badge tone={p.payment_status === 'Concluída' ? 'green' : p.payment_status === 'Aguardando Entrega' ? 'blue' : 'amber'}>{p.payment_status}</Badge>
+                        <Badge tone={p.payment_status === 'Concluída' ? 'green' : p.payment_status === 'Parcial' ? 'blue' : 'amber'}>{p.payment_status}</Badge>
                         {p.installment_count > 1 && <span className="ml-1.5 text-xs text-slate-400">{p.installment_count}x</span>}
                       </td>
                       <td className="td text-right font-semibold text-slate-900">{BRL(Number(p.total_amount))}</td>
@@ -560,20 +561,12 @@ export default function Purchases() {
               </Field>
             </div>
 
-            <Field label="Status do pagamento">
-              <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_STATUS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setForm({ ...form, payment_status: s })}
-                    className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition ${
-                      form.payment_status === s
-                        ? 'bg-slate-900 text-white shadow-sm'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >{s}</button>
-                ))}
+            <Field label="Status do pagamento" hint="calculado automaticamente pelas baixas em Contas a Pagar">
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                <Badge tone={form.payment_status === 'Concluída' ? 'green' : form.payment_status === 'Parcial' ? 'blue' : 'amber'}>
+                  {form.payment_status}
+                </Badge>
+                <span className="text-xs text-slate-400">dê baixa nas parcelas em Contas a Pagar para alterar</span>
               </div>
             </Field>
 
