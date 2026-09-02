@@ -1,20 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Wrench, Search } from 'lucide-react';
-import { supabase, type Maintenance, type Part, BRL, formatDate } from '../lib/supabase';
+import { supabase, type Maintenance, type Part, type PartUnit, BRL, formatDate } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync } from './ui';
 
 const inputCls = 'input';
 
 const MAINTENANCE_STATUS = ['Em andamento', 'Concluída'] as const;
 
+// A tracked maintenance takes its condition from the unit it targets;
+// an untracked one carries its own.
+const condOf = (m: any): string => m.unit?.condition ?? m.condition ?? 'Usado';
+
 const empty = {
-  part_id: '', maintenance_date: new Date().toISOString().slice(0, 10),
+  part_id: '', part_unit_id: '', condition: 'Usado',
+  maintenance_date: new Date().toISOString().slice(0, 10),
   cost: 0, description: '', provider: '', status: 'Em andamento' as string,
 };
 
 export default function MaintenanceScreen() {
   const [items, setItems] = useState<Maintenance[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
+  const [units, setUnits] = useState<PartUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [conditionFilter, setConditionFilter] = useState<'Todas' | 'Novo' | 'Usado'>('Todas');
@@ -29,11 +35,13 @@ export default function MaintenanceScreen() {
   const load = async () => {
     setLoading(true);
     const [mRes, pRes] = await Promise.all([
-      supabase.from('maintenances').select('*, part:part_id(*)').order('maintenance_date', { ascending: false }),
+      supabase.from('maintenances').select('*, part:part_id(*), unit:part_unit_id(*)').order('maintenance_date', { ascending: false }),
       supabase.from('parts').select('*').order('name'),
     ]);
     setItems((mRes.data as Maintenance[]) ?? []);
     setParts((pRes.data as Part[]) ?? []);
+    const { data: uRes } = await supabase.from('part_units').select('*').neq('status', 'Vendida').order('code');
+    setUnits((uRes as PartUnit[]) ?? []);
     setLoading(false);
   };
 
@@ -43,14 +51,15 @@ export default function MaintenanceScreen() {
     const q = query.trim().toLowerCase();
     return items.filter((m) => {
       if (conditionFilter !== 'Todas') {
-        const cond = m.part?.condition === 'Novo' ? 'Novo' : 'Usado';
-        if (cond !== conditionFilter) return false;
+        if (condOf(m) !== conditionFilter) return false;
       }
       if (!q) return true;
       return (
         (m.part?.name ?? '').toLowerCase().includes(q) ||
         (m.part?.brand ?? '').toLowerCase().includes(q) ||
         (m.provider ?? '').toLowerCase().includes(q) ||
+        ((m as any).unit?.code ?? '').toLowerCase().includes(q) ||
+        ((m as any).unit?.serial_number ?? '').toLowerCase().includes(q) ||
         m.description.toLowerCase().includes(q)
       );
     });
@@ -74,6 +83,8 @@ export default function MaintenanceScreen() {
       description: m.description ?? '',
       provider: m.provider ?? '',
       status: m.status ?? 'Em andamento',
+      part_unit_id: m.part_unit_id ?? '',
+      condition: m.condition ?? 'Usado',
     });
     setError('');
     setOpen(true);
@@ -81,6 +92,10 @@ export default function MaintenanceScreen() {
 
   const save = async (syncFinancial: boolean = true) => {
     if (!form.part_id) { setError('Selecione a peça.'); return; }
+    const selectedPart = parts.find((p) => p.id === form.part_id);
+    if (selectedPart?.tracked_by_unit && !form.part_unit_id) {
+      setError('Selecione qual unidade está em manutenção.'); return;
+    }
     if (!form.description.trim()) { setError('Descreva o que foi feito na manutenção.'); return; }
     setConfirmSync(false);
     setSaving(true);
@@ -91,6 +106,8 @@ export default function MaintenanceScreen() {
       description: form.description.trim(),
       provider: form.provider.trim() || null,
       status: form.status,
+      part_unit_id: form.part_unit_id || null,
+      condition: form.condition || 'Usado',
     };
     // part_id is intentionally never changed on edit — the trigger that
     // rolls the cost into the part's average cost assumes the same part.
@@ -166,8 +183,11 @@ export default function MaintenanceScreen() {
                     <td className="td">
                       <div className="font-medium text-slate-900">{m.part?.name ?? '—'}</div>
                       {m.part?.brand && <div className="text-xs text-slate-400">{m.part.brand}</div>}
+                      {(m as any).unit && (
+                        <div className="text-xs text-sky-600">{(m as any).unit.code}{(m as any).unit.serial_number ? ` · ${(m as any).unit.serial_number}` : ''}</div>
+                      )}
                     </td>
-                    <td className="td"><Badge tone={m.part?.condition === 'Novo' ? 'green' : 'amber'}>{m.part?.condition === 'Novo' ? 'Novo' : 'Usado'}</Badge></td>
+                    <td className="td"><Badge tone={condOf(m) === 'Novo' ? 'green' : 'amber'}>{condOf(m)}</Badge></td>
                     <td className="td text-slate-500">{formatDate(m.maintenance_date)}</td>
                     <td className="td text-slate-600 max-w-xs truncate">{m.description}</td>
                     <td className="td text-slate-500">{m.provider || '—'}</td>
@@ -205,17 +225,43 @@ export default function MaintenanceScreen() {
                 className={inputCls}
                 value={form.part_id}
                 disabled={!!editing}
-                onChange={(e) => setForm({ ...form, part_id: e.target.value })}
+                onChange={(e) => setForm({ ...form, part_id: e.target.value, part_unit_id: '' })}
               >
                 <option value="">— Selecione —</option>
-                <optgroup label="Novas">
-                  {parts.filter((p) => p.condition === 'Novo').map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
-                </optgroup>
-                <optgroup label="Usadas">
-                  {parts.filter((p) => p.condition !== 'Novo').map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
-                </optgroup>
+                {parts.map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
               </select>
             </Field>
+            {(() => {
+              const selected = parts.find((p) => p.id === form.part_id);
+              if (!selected) return null;
+              if (selected.tracked_by_unit) {
+                const opts = units.filter((u) => u.part_id === selected.id && (u.status !== 'Vendida' || u.id === form.part_unit_id));
+                return (
+                  <Field label="Unidade" hint="qual exemplar está em manutenção">
+                    <select
+                      className={inputCls}
+                      value={form.part_unit_id}
+                      onChange={(e) => setForm({ ...form, part_unit_id: e.target.value })}
+                    >
+                      <option value="">— Selecione a unidade —</option>
+                      {opts.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.code}{u.serial_number ? ` · ${u.serial_number}` : ' · sem série'} · {u.condition}{u.status === 'Em manutenção' ? ' (em manutenção)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                );
+              }
+              return (
+                <Field label="Condição">
+                  <select className={inputCls} value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
+                    <option value="Novo">Novo</option>
+                    <option value="Usado">Usado</option>
+                  </select>
+                </Field>
+              );
+            })()}
             <div className="grid grid-cols-2 gap-4">
               <Field label="Data"><input type="date" className={inputCls} value={form.maintenance_date} onChange={(e) => setForm({ ...form, maintenance_date: e.target.value })} /></Field>
               <Field label="Custo (R$)"><input type="number" step="0.01" className={inputCls} value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} /></Field>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ClipboardList, Plus, Trash2, Calculator, Printer, Eraser,
 } from 'lucide-react';
-import { BRL } from '../lib/supabase';
+import { supabase, BRL } from '../lib/supabase';
 import { useLocalState } from '../lib/useLocalState';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
@@ -14,10 +14,14 @@ type OrderItem = {
   is_import: boolean;
   cost_usd: number;
   cost_brl: number;
+  // True while cost_brl was last set BY US (auto-fill), not typed by the
+  // user. Lets USD keep re-syncing R$ across every keystroke, but stops
+  // touching it the moment the user edits R$ directly.
+  cost_brl_auto: boolean;
 };
 
 const newItem = (): OrderItem => ({
-  id: crypto.randomUUID(), description: '', qty: 1, is_import: false, cost_usd: 0, cost_brl: 0,
+  id: crypto.randomUUID(), description: '', qty: 1, is_import: false, cost_usd: 0, cost_brl: 0, cost_brl_auto: true,
 });
 
 const emptyHeader = {
@@ -101,13 +105,37 @@ export default function Orders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-fill the exchange rate from the daily USD quote (+ spread) —
-  // only while the field hasn't been filled in yet (still 0).
+  // Loads the saved default rates (Configurações) the first time this
+  // screen is used. Never overwrites values already filled in locally —
+  // only fields still at 0 are seeded from the defaults.
+  const [defaultsLoaded, setDefaultsLoaded] = useState(false);
   useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('order_defaults').eq('id', 'default').maybeSingle();
+      const d = (data as any)?.order_defaults as Record<string, number> | undefined;
+      if (d && Object.keys(d).length > 0) {
+        setRates((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(d)) {
+            if (Number((next as any)[k]) === 0) (next as any)[k] = Number(v);
+          }
+          return next;
+        });
+      }
+      setDefaultsLoaded(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Falls back to the day's USD quote (+ spread) if no default exchange
+  // rate was saved. Runs only after the defaults have been applied, so
+  // the two don't race each other.
+  useEffect(() => {
+    if (!defaultsLoaded) return;
     if (Number(rates.exchange_rate) === 0 && usd.effectiveRate) {
       setRates((r) => (Number(r.exchange_rate) === 0 ? { ...r, exchange_rate: usd.effectiveRate as number } : r));
     }
-  }, [usd.effectiveRate, rates.exchange_rate, setRates]);
+  }, [defaultsLoaded, usd.effectiveRate, rates.exchange_rate, setRates]);
 
   const addItem = () => {
     if (items.length >= 10) return;
@@ -119,33 +147,52 @@ export default function Orders() {
 
   // Toggling "Importação" on: auto-fills R$ from the USD cost already
   // typed (if any), using the day's exchange rate — only while R$ is
-  // still blank. Toggling off: clears USD (não se aplica), keeps R$ as-is
+  // still auto-filled (never overwrites a value the user typed
+  // themselves). Toggling off: clears USD (não se aplica), keeps R$ as-is
   // so the user can still adjust the domestic cost directly.
+  //
+  // rates.exchange_rate starts at 0 and is filled in asynchronously (from
+  // saved defaults, then the daily quote). If the user types before that
+  // finishes, fall back to usd.effectiveRate directly so the auto-fill
+  // never silently no-ops.
   const setItemImport = (id: string, checked: boolean) => {
+    const rate = Number(rates.exchange_rate) || Number(usd.effectiveRate) || 0;
     setItems((prev) => prev.map((i) => {
       if (i.id !== id) return i;
       if (checked) {
-        const autoBrl = num(i.cost_brl) === 0 && num(i.cost_usd) > 0 && rates.exchange_rate
-          ? Number((i.cost_usd * rates.exchange_rate).toFixed(2))
-          : i.cost_brl;
-        return { ...i, is_import: true, cost_brl: autoBrl };
+        if (i.cost_brl_auto && num(i.cost_usd) > 0 && rate) {
+          return { ...i, is_import: true, cost_brl: Number((i.cost_usd * rate).toFixed(2)) };
+        }
+        return { ...i, is_import: true };
       }
       return { ...i, is_import: false, cost_usd: 0 };
     }));
   };
 
-  // Typing the USD cost on an import item auto-fills R$ (while it's
-  // still blank) using the day's exchange rate — never overwrites a
-  // value the user already entered manually.
+  // Typing a USD cost means this item is an import — activate it
+  // automatically instead of requiring the checkbox first. Re-syncs R$
+  // on EVERY keystroke (not just while R$ reads as 0) as long as R$ is
+  // still an auto-filled value — the moment the user edits R$ directly,
+  // cost_brl_auto flips off and USD stops touching it.
   const updateItemCostUsd = (id: string, v: number) => {
+    const rate = Number(rates.exchange_rate) || Number(usd.effectiveRate) || 0;
     setItems((prev) => prev.map((i) => {
       if (i.id !== id) return i;
-      const autoBrl = i.is_import && num(i.cost_brl) === 0 && v > 0 && rates.exchange_rate
-        ? Number((v * rates.exchange_rate).toFixed(2))
-        : i.cost_brl;
-      return { ...i, cost_usd: v, cost_brl: autoBrl };
+      const nowImport = i.is_import || v > 0;
+      if (i.cost_brl_auto && v > 0 && rate) {
+        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: Number((v * rate).toFixed(2)) };
+      }
+      if (i.cost_brl_auto && v === 0) {
+        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: 0 };
+      }
+      return { ...i, cost_usd: v, is_import: nowImport };
     }));
   };
+
+  // The R$ field is edited directly by the user — from this point on it's
+  // a manual value, so USD entry must stop overwriting it.
+  const updateItemCostBrl = (id: string, v: number) =>
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, cost_brl: v, cost_brl_auto: false } : i)));
 
   const clearAll = () => {
     setHeader(emptyHeader);
@@ -305,12 +352,12 @@ export default function Orders() {
                     <td className="td px-2 w-32">
                       <NumField
                         step="0.01"
-                        className={`${inputCls} text-right ${r.is_import ? '' : 'opacity-50'}`}
-                        value={r.is_import ? r.cost_usd : 0}
+                        className={`${inputCls} text-right`}
+                        value={r.cost_usd}
                         onChange={(v) => updateItemCostUsd(r.id, v)}
                       />
                     </td>
-                    <td className="td px-2 w-32"><NumField step="0.01" className={`${inputCls} text-right`} value={r.cost_brl} onChange={(v) => updateItem(r.id, { cost_brl: v })} /></td>
+                    <td className="td px-2 w-32"><NumField step="0.01" className={`${inputCls} text-right`} value={r.cost_brl} onChange={(v) => updateItemCostBrl(r.id, v)} /></td>
                     <td className="td text-right text-slate-600">{BRL(r.freightBRL)}</td>
                     <td className="td text-right text-slate-600">{BRL(r.taxRateado)}</td>
                     <td className="td text-right font-medium text-slate-800">{BRL(r.custoFinal)}</td>

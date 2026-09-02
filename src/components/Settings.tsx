@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, RefreshCw } from 'lucide-react';
+import { Settings as SettingsIcon, RefreshCw, ClipboardList } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
@@ -65,6 +65,86 @@ export default function Settings() {
           Esse valor (com spread) é usado para preencher automaticamente os campos de câmbio em Compras e Pedidos, sempre que ainda estiverem vazios — se você já digitou uma taxa manualmente, ela nunca é sobrescrita.
         </p>
       </div>
+
+      <OrderDefaults />
+    </div>
+  );
+}
+
+const DEFAULT_FIELDS: { key: string; label: string; suffix?: string }[] = [
+  { key: 'exchange_rate', label: 'Cotação do dólar (R$)' },
+  { key: 'freight_usd', label: 'Frete internacional (USD)' },
+  { key: 'iof_percent', label: 'IOF', suffix: '%' },
+  { key: 'import_tax_percent', label: 'Imposto importação', suffix: '%' },
+  { key: 'invoice_tax_percent', label: 'Imposto nota fiscal', suffix: '%' },
+  { key: 'seller_commission_percent', label: 'Comissão vendedor', suffix: '%' },
+  { key: 'card_fee_percent', label: 'Taxa cartão de crédito', suffix: '%' },
+  { key: 'issuer_commission_percent', label: 'Comissão do emissor', suffix: '%' },
+  { key: 'profit_margin_percent', label: 'Margem de lucro', suffix: '%' },
+];
+
+function OrderDefaults() {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('order_defaults').eq('id', 'default').maybeSingle();
+      const d = ((data as any)?.order_defaults ?? {}) as Record<string, number>;
+      const initial: Record<string, string> = {};
+      for (const f of DEFAULT_FIELDS) initial[f.key] = String(d[f.key] ?? 0);
+      setValues(initial);
+      setLoading(false);
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    const payload: Record<string, number> = {};
+    for (const f of DEFAULT_FIELDS) {
+      const n = Number(String(values[f.key] ?? '0').replace(',', '.'));
+      payload[f.key] = isNaN(n) ? 0 : n;
+    }
+    await supabase.from('app_settings').update({ order_defaults: payload, updated_at: new Date().toISOString() }).eq('id', 'default');
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div className="card p-6 max-w-xl mt-6">
+      <div className="flex items-center gap-2 mb-1">
+        <ClipboardList size={16} className="text-slate-400" />
+        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Padrões de Pedidos</span>
+      </div>
+      <p className="text-xs text-slate-400 mb-4">
+        Valores usados para pré-preencher a tela de Pedidos. Campos já preenchidos nunca são sobrescritos.
+      </p>
+
+      {loading ? (
+        <div className="text-sm text-slate-400 py-4">Carregando...</div>
+      ) : (
+        <>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {DEFAULT_FIELDS.map((f) => (
+              <Field key={f.key} label={f.label + (f.suffix ? ` (${f.suffix})` : '')}>
+                <input
+                  className="input"
+                  value={values[f.key] ?? ''}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                />
+              </Field>
+            ))}
+          </div>
+          <div className="flex justify-end mt-4">
+            <button className="btn-primary" disabled={saving} onClick={save}>
+              {saving ? 'Salvando...' : saved ? 'Salvo!' : 'Salvar padrões'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

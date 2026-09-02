@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import logoIcon from './assets/logo-icon.svg';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users,
   Wallet, Search, Boxes, Menu, X, ClipboardList, Wrench, Settings as SettingsIcon,
@@ -98,12 +99,12 @@ export default function App() {
         }`}
       >
         <div className="h-16 flex items-center gap-3 px-5 border-b border-slate-200">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 flex items-center justify-center shadow-sm">
-            <Package className="text-white" size={20} />
+          <div className="w-10 h-10 flex items-center justify-center shrink-0">
+            <img src={logoIcon} alt="Laser Tools" className="w-full h-full" />
           </div>
           <div>
-            <div className="font-bold text-slate-900 leading-tight">LaserParts</div>
-            <div className="text-[11px] text-slate-400 font-medium tracking-wide">ERP</div>
+            <div className="font-bold text-slate-900 leading-tight tracking-wide" style={{ fontFamily: 'Georgia, serif' }}>LASER TOOLS</div>
+            <div className="text-[10px] text-amber-700 font-semibold tracking-[0.15em]">COMPONENTS</div>
           </div>
           <button className="ml-auto lg:hidden icon-btn" onClick={() => setMobileOpen(false)}>
             <X size={18} />

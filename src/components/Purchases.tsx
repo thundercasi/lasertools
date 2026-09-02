@@ -5,7 +5,7 @@ import { useUsdRate } from '../lib/useUsdRate';
 import { useSessionState } from '../lib/useSessionState';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone } from './ui';
 
-type ItemRow = { part_id: string; quantity: number; unit_cost: number; serial_number: string };
+type ItemRow = { part_id: string; condition: string; quantity: number; unit_cost: number; serial_number: string };
 const inputCls = 'input';
 
 const PAYMENT_METHODS = ['PIX', 'Cartão', 'Boleto', 'Troca/Permuta'] as const;
@@ -46,7 +46,7 @@ export default function Purchases() {
       setForm((f) => (f.currency === 'USD' && Number(f.exchange_rate) === 0 ? { ...f, exchange_rate: usd.effectiveRate as number } : f));
     }
   }, [usd.effectiveRate, form.currency, form.exchange_rate, setForm]);
-  const [rows, setRows] = useSessionState<ItemRow[]>('purchase:rows', [{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
+  const [rows, setRows] = useSessionState<ItemRow[]>('purchase:rows', [{ part_id: '', condition: 'Novo', quantity: 1, unit_cost: 0, serial_number: '' }]);
   const [open, setOpen] = useSessionState('purchase:open', false);
   const [saving, setSaving] = useState(false);
   const [confirmSync, setConfirmSync] = useState(false);
@@ -135,14 +135,14 @@ export default function Purchases() {
     }, 0);
     setEditing(null);
     setForm({ ...emptyForm, code: `COMP-${String(maxNum + 1).padStart(4, '0')}`, rate_confirmed: true, first_installment_date: emptyForm.purchase_date });
-    setRows([{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
+    setRows([{ part_id: '', condition: 'Novo', quantity: 1, unit_cost: 0, serial_number: '' }]);
     setError(''); setOpen(true);
   };
 
   const closeForm = () => {
     setOpen(false);
     setForm(emptyForm);
-    setRows([{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
+    setRows([{ part_id: '', condition: 'Novo', quantity: 1, unit_cost: 0, serial_number: '' }]);
   };
 
   const openEdit = async (p: Purchase) => {
@@ -168,17 +168,17 @@ export default function Purchases() {
       // unit_cost stays the raw value the user typed, in the purchase's own
       // currency — unit_cost_total (R$, apportioned) is not editable here,
       // it's recomputed on save from the current form values.
-      part_id: r.part_id, quantity: Number(r.quantity), unit_cost: Number(r.unit_cost),
+      part_id: r.part_id, condition: r.condition ?? 'Novo', quantity: Number(r.quantity), unit_cost: Number(r.unit_cost),
       serial_number: r.serial_number ?? '',
     })));
-    if (!pi || pi.length === 0) setRows([{ part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
+    if (!pi || pi.length === 0) setRows([{ part_id: '', condition: 'Novo', quantity: 1, unit_cost: 0, serial_number: '' }]);
     setError(''); setOpen(true);
   };
 
   const updateRow = (i: number, patch: Partial<ItemRow>) => {
     setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   };
-  const addRow = () => setRows((prev) => [...prev, { part_id: '', quantity: 1, unit_cost: 0, serial_number: '' }]);
+  const addRow = () => setRows((prev) => [...prev, { part_id: '', condition: 'Novo', quantity: 1, unit_cost: 0, serial_number: '' }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
 
   const setCurrency = (c: string) => {
@@ -300,6 +300,7 @@ export default function Purchases() {
         const extraPerUnitBRL = r.quantity > 0 ? (extraCostsBRL * proportion) / r.quantity : 0;
         return {
           purchase_id: purchaseId, part_id: r.part_id,
+          condition: r.condition || 'Novo',
           quantity: Number(r.quantity),
           unit_cost: Number(r.unit_cost),               // raw entered cost, in the purchase currency
           unit_cost_total: unitCostBRL + extraPerUnitBRL, // apportioned cost in R$ — used for avg stock cost
@@ -335,6 +336,17 @@ export default function Purchases() {
         }
       }
 
+      // The accordion caches each purchase's items on first expand, so a
+      // just-saved purchase must have its cache dropped or it would keep
+      // showing the pre-edit list of parts.
+      if (purchaseId) {
+        setExpandedItems((prev) => {
+          const next = { ...prev };
+          delete next[purchaseId as string];
+          return next;
+        });
+      }
+
       closeForm();
     } catch (err: any) {
       setError(err?.message ?? 'Falha ao salvar a compra.');
@@ -348,6 +360,11 @@ export default function Purchases() {
   const remove = async () => {
     if (!deleteId) return;
     await supabase.from('purchases').delete().eq('id', deleteId);
+    setExpandedItems((prev) => {
+      const next = { ...prev };
+      delete next[deleteId];
+      return next;
+    });
     setDeleteId(null); load();
   };
 
@@ -440,6 +457,7 @@ export default function Purchases() {
                                 <tr className="text-slate-400">
                                   <th className="text-left font-medium py-1.5">Peça</th>
                                   <th className="text-left font-medium py-1.5">Marca</th>
+                                  <th className="text-left font-medium py-1.5">Estado</th>
                                   <th className="text-right font-medium py-1.5">Qtd</th>
                                   <th className="text-right font-medium py-1.5">Custo Unit.</th>
                                   <th className="text-right font-medium py-1.5">Subtotal</th>
@@ -451,6 +469,11 @@ export default function Purchases() {
                                   <tr key={it.id}>
                                     <td className="py-1.5 font-medium text-slate-800">{it.part?.name ?? '—'}</td>
                                     <td className="py-1.5 text-slate-500">{it.part?.brand || '—'}</td>
+                                    <td className="py-1.5">
+                                      <Badge tone={it.condition === 'Novo' ? 'green' : 'amber'}>
+                                        {it.condition ?? 'Novo'}
+                                      </Badge>
+                                    </td>
                                     <td className="py-1.5 text-right text-slate-600">{it.quantity}</td>
                                     <td className="py-1.5 text-right text-slate-600">{money(Number(it.unit_cost), p.currency)}</td>
                                     <td className="py-1.5 text-right font-medium text-slate-800">{money(Number(it.unit_cost) * Number(it.quantity), p.currency)}</td>
@@ -584,7 +607,9 @@ export default function Purchases() {
                 <span className="col-span-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">Nº Série/Lote</span>
               </div>
               <div className="space-y-2">
-                {rows.map((r, i) => (
+                {rows.map((r, i) => {
+                  const selectedPart = parts.find((x) => x.id === r.part_id);
+                  return (
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">
                     <select
                       className={`${inputCls} col-span-4`}
@@ -595,12 +620,18 @@ export default function Purchases() {
                       }}
                     >
                       <option value="">— Selecione —</option>
-                      <optgroup label="Novas">
-                        {parts.filter((p) => p.condition === 'Novo').map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
-                      </optgroup>
-                      <optgroup label="Usadas">
-                        {parts.filter((p) => p.condition !== 'Novo').map((p) => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
-                      </optgroup>
+                      {parts.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
+                      ))}
+                    </select>
+                    <select
+                      className={`${inputCls} col-span-2 text-xs`}
+                      value={r.condition}
+                      onChange={(e) => updateRow(i, { condition: e.target.value })}
+                      title={selectedPart?.tracked_by_unit ? 'Condição desta unidade' : 'Condição deste lote'}
+                    >
+                      <option value="Novo">Novo</option>
+                      <option value="Usado">Usado</option>
                     </select>
                     <input
                       type="number" min={1} placeholder="Qtd"
@@ -615,16 +646,19 @@ export default function Purchases() {
                       onChange={(e) => updateRow(i, { unit_cost: Number(e.target.value) })}
                     />
                     <input
-                      type="text" placeholder="Nº Série/Lote (opc.)"
-                      className={`${inputCls} col-span-4 text-xs`}
+                      type="text" placeholder="Nº Série (opc.)"
+                      className={`${inputCls} col-span-2 text-xs`}
                       value={r.serial_number}
                       onChange={(e) => updateRow(i, { serial_number: e.target.value })}
+                      disabled={!!selectedPart && !selectedPart.tracked_by_unit}
+                      title={selectedPart && !selectedPart.tracked_by_unit ? 'Esta peça não é controlada por unidade' : ''}
                     />
                     <button type="button" className="col-span-1 icon-btn hover:text-red-600 justify-self-center" onClick={() => removeRow(i)}>
                       <XIcon size={16} />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="mt-3 space-y-2">
                 <div className="grid grid-cols-2 gap-4">

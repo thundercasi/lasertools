@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { Plus, Pencil, Trash2, Receipt, Search, Paperclip, FileText, X, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
-import { supabase, type Sale, type Customer, type SaleFile, type SaleItem, type Part, BRL, formatDate } from '../lib/supabase';
+import { supabase, type Sale, type Customer, type SaleFile, type SaleItem, type Part, type PartUnit, type PartStock, BRL, formatDate } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone } from './ui';
 import { useSessionState } from '../lib/useSessionState';
 
@@ -15,7 +15,7 @@ const emptyForm = {
   delivery_fee: 0, delivery_cost: 0, notes: '',
 };
 
-type SaleRow = { part_id: string; quantity: number; unit_price: number; serial_number: string };
+type SaleRow = { part_id: string; condition: string; part_unit_id: string; quantity: number; unit_price: number; serial_number: string };
 
 const inputCls = 'input';
 
@@ -24,6 +24,8 @@ export default function Sales() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [stockParts, setStockParts] = useState<Part[]>([]);
   const [allParts, setAllParts] = useState<Part[]>([]);
+  const [availableUnits, setAvailableUnits] = useState<PartUnit[]>([]);
+  const [stockByCondition, setStockByCondition] = useState<PartStock[]>([]);
   const [costBySale, setCostBySale] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -51,22 +53,26 @@ export default function Sales() {
   const [files, setFiles] = useState<SaleFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [rows, setRows] = useSessionState<SaleRow[]>('sale:rows', [{ part_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
+  const [rows, setRows] = useSessionState<SaleRow[]>('sale:rows', [{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
   const [serialsByPart, setSerialsByPart] = useState<Map<string, string[]>>(new Map());
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const [cRes, pRes, piRes, siRes] = await Promise.all([
+      const [cRes, pRes, piRes, siRes, unitsRes, stockRes] = await Promise.all([
         supabase.from('customers').select('*').order('name'),
         supabase.from('parts').select('*').order('name'),
         supabase.from('purchase_items').select('part_id, serial_number').not('serial_number', 'is', null).neq('serial_number', ''),
         supabase.from('sale_items').select('sale_id, unit_cost, quantity'),
+        supabase.from('part_units').select('*').order('code'),
+        supabase.from('part_stock').select('*'),
       ]);
       setCustomers((cRes.data as Customer[]) ?? []);
       const allP = (pRes.data as Part[]) ?? [];
       setAllParts(allP);
+      setAvailableUnits((unitsRes.data as PartUnit[]) ?? []);
+      setStockByCondition((stockRes.data as PartStock[]) ?? []);
       setStockParts(allP.filter((p) => Number(p.stock_quantity) > 0));
 
       // Real acquisition cost (COGS) of each sale, from the cost locked-in
@@ -124,14 +130,14 @@ export default function Sales() {
 
   const updateRow = (i: number, patch: Partial<SaleRow>) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((prev) => [...prev, { part_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
+  const addRow = () => setRows((prev) => [...prev, { part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
 
   const openNew = () => {
     setEditing(null);
     const today = new Date().toISOString().slice(0, 10);
     setForm({ ...emptyForm, sale_date: today, first_installment_date: today });
-    setRows([{ part_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
+    setRows([{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
     setFiles([]);
     setError(''); setOpen(true);
   };
@@ -152,10 +158,13 @@ export default function Sales() {
     setFiles((fileData as SaleFile[]) ?? []);
     const { data: si } = await supabase.from('sale_items').select('*').eq('sale_id', s.id);
     const itemRows = ((si as SaleItem[]) ?? []).map((r) => ({
-      part_id: r.part_id, quantity: Number(r.quantity), unit_price: Number(r.unit_price),
+      part_id: r.part_id,
+      condition: r.condition ?? 'Novo',
+      part_unit_id: r.part_unit_id ?? '',
+      quantity: Number(r.quantity), unit_price: Number(r.unit_price),
       serial_number: r.serial_number ?? '',
     }));
-    setRows(itemRows.length > 0 ? itemRows : [{ part_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
+    setRows(itemRows.length > 0 ? itemRows : [{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
     setError(''); setOpen(true);
   };
 
@@ -196,6 +205,15 @@ export default function Sales() {
     const validRows = rows.filter((r) => r.part_id);
     if (validRows.length === 0) { setError('Adicione ao menos uma peça à venda.'); return; }
     if (!form.customer_id) { setError('Selecione um cliente.'); return; }
+    const missingUnit = validRows.find((r) => {
+      const p = allParts.find((x) => x.id === r.part_id);
+      return p?.tracked_by_unit && !r.part_unit_id;
+    });
+    if (missingUnit) {
+      const p = allParts.find((x) => x.id === missingUnit.part_id);
+      setError(`Selecione qual unidade de "${p?.name}" está sendo vendida.`);
+      return;
+    }
     setConfirmSync(false);
     setSaving(true);
     try {
@@ -241,14 +259,29 @@ export default function Sales() {
         await supabase.from('sale_items').delete().eq('sale_id', saleId);
         for (const r of validRows) {
           const part = allParts.find((p) => p.id === r.part_id);
-          const unitCost = part ? Number(part.unit_cost) : 0;
+          // A tracked part's real cost is the cost of the exact exemplar
+          // being sold — not the catalog average across all exemplars.
+          const unit = r.part_unit_id ? availableUnits.find((u) => u.id === r.part_unit_id) : null;
+          const unitCost = unit ? Number(unit.unit_cost) : (part ? Number(part.unit_cost) : 0);
           const { error: ie2 } = await supabase.from('sale_items').insert({
             sale_id: saleId, part_id: r.part_id, quantity: r.quantity,
+            condition: r.condition || 'Novo',
+            part_unit_id: r.part_unit_id || null,
             unit_price: r.unit_price, unit_cost: unitCost,
             serial_number: r.serial_number || null,
           });
           if (ie2) { setError(ie2.message); return; }
         }
+      }
+      // The accordion caches each sale's items on first expand, so a
+      // just-saved sale must have its cache dropped or it would keep
+      // showing the pre-edit list of parts.
+      if (saleId) {
+        setExpandedItems((prev) => {
+          const next = { ...prev };
+          delete next[saleId as string];
+          return next;
+        });
       }
       setOpen(false);
     } catch (err: any) {
@@ -263,6 +296,11 @@ export default function Sales() {
   const remove = async () => {
     if (!deleteId) return;
     await supabase.from('sales').delete().eq('id', deleteId);
+    setExpandedItems((prev) => {
+      const next = { ...prev };
+      delete next[deleteId];
+      return next;
+    });
     setDeleteId(null); load();
   };
 
@@ -362,6 +400,7 @@ export default function Sales() {
                                   <tr className="text-slate-400">
                                     <th className="text-left font-medium py-1.5">Peça</th>
                                     <th className="text-left font-medium py-1.5">Marca</th>
+                                    <th className="text-left font-medium py-1.5">Estado</th>
                                     <th className="text-right font-medium py-1.5">Qtd</th>
                                     <th className="text-right font-medium py-1.5">Preço Unit.</th>
                                     <th className="text-right font-medium py-1.5">Subtotal</th>
@@ -373,6 +412,11 @@ export default function Sales() {
                                     <tr key={it.id}>
                                       <td className="py-1.5 font-medium text-slate-800">{it.part?.name ?? '—'}</td>
                                       <td className="py-1.5 text-slate-500">{it.part?.brand || '—'}</td>
+                                      <td className="py-1.5">
+                                        <Badge tone={it.condition === 'Novo' ? 'green' : 'amber'}>
+                                          {it.condition ?? 'Novo'}
+                                        </Badge>
+                                      </td>
                                       <td className="py-1.5 text-right text-slate-600">{it.quantity}</td>
                                       <td className="py-1.5 text-right text-slate-600">{BRL(Number(it.unit_price))}</td>
                                       <td className="py-1.5 text-right font-medium text-slate-800">{BRL(Number(it.unit_price) * Number(it.quantity))}</td>
@@ -421,43 +465,77 @@ export default function Sales() {
               </div>
               <div className="space-y-2">
                 {rows.map((r, i) => {
-                  const part = stockParts.find((p) => p.id === r.part_id);
-                  const available = part ? Number(part.stock_quantity) : 0;
+                  const part = allParts.find((p) => p.id === r.part_id);
+                  const tracked = !!part?.tracked_by_unit;
+                  // Available balance for the selected part AND condition.
+                  const balance = stockByCondition.find(
+                    (s) => s.part_id === r.part_id && s.condition === r.condition
+                  );
+                  const available = Number(balance?.disponivel ?? 0);
+                  // Units offered: those still available, plus whichever
+                  // unit this row already points to (so editing an existing
+                  // sale doesn't lose its selection).
+                  const unitOptions = availableUnits.filter(
+                    (u) => u.part_id === r.part_id &&
+                      (u.status === 'Disponível' ? u.condition === r.condition : u.id === r.part_unit_id)
+                  );
                   const partSerials = part ? (serialsByPart.get(part.id) ?? []) : [];
                   return (
                     <div key={i} className="grid grid-cols-12 gap-2 items-center">
                       <select
-                        className={`${inputCls} col-span-4`}
+                        className={`${inputCls} col-span-3`}
                         value={r.part_id}
                         onChange={(e) => {
                           const p = allParts.find((x) => x.id === e.target.value);
-                          updateRow(i, { part_id: e.target.value, unit_price: p ? Number(p.unit_price) : 0, serial_number: '' });
+                          updateRow(i, { part_id: e.target.value, unit_price: p ? Number(p.unit_price) : 0, serial_number: '', part_unit_id: '' });
                         }}
                       >
                         <option value="">— Selecione —</option>
-                        <optgroup label="Novas">
-                          {stockParts.filter((p) => p.condition === 'Novo').map((p) => (
-                            <option key={p.id} value={p.id}>({Number(p.stock_quantity)}) {p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="Usadas">
-                          {stockParts.filter((p) => p.condition !== 'Novo').map((p) => (
-                            <option key={p.id} value={p.id}>({Number(p.stock_quantity)}) {p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
-                          ))}
-                        </optgroup>
-                        {r.part_id && !stockParts.some((p) => p.id === r.part_id) && (() => {
-                          const p = allParts.find((x) => x.id === r.part_id);
-                          return p ? (
-                            <optgroup label={p.condition === 'Novo' ? 'Novas' : 'Usadas'}>
-                              <option value={p.id}>(0) {p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
-                            </optgroup>
-                          ) : null;
-                        })()}
+                        {allParts.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>
+                        ))}
                       </select>
+                      <select
+                        className={`${inputCls} col-span-2 text-xs`}
+                        value={r.condition}
+                        onChange={(e) => updateRow(i, { condition: e.target.value, part_unit_id: '' })}
+                      >
+                        <option value="Novo">Novo ({Number(stockByCondition.find((s) => s.part_id === r.part_id && s.condition === 'Novo')?.disponivel ?? 0)})</option>
+                        <option value="Usado">Usado ({Number(stockByCondition.find((s) => s.part_id === r.part_id && s.condition === 'Usado')?.disponivel ?? 0)})</option>
+                      </select>
+                      {tracked ? (
+                        <select
+                          className={`${inputCls} col-span-3 text-xs`}
+                          value={r.part_unit_id}
+                          onChange={(e) => {
+                            const u = availableUnits.find((x) => x.id === e.target.value);
+                            updateRow(i, { part_unit_id: e.target.value, quantity: 1, serial_number: u?.serial_number ?? '' });
+                          }}
+                        >
+                          <option value="">— Qual unidade? —</option>
+                          {unitOptions.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.code}{u.serial_number ? ` · ${u.serial_number}` : ' · sem série'}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text" list={`serials-${i}`} placeholder="Nº Série/Lote (opc.)"
+                          className={`${inputCls} col-span-3 text-xs`}
+                          value={r.serial_number}
+                          onChange={(e) => updateRow(i, { serial_number: e.target.value })}
+                        />
+                      )}
+                      <datalist id={`serials-${i}`}>
+                        {partSerials.map((s) => <option key={s} value={s} />)}
+                      </datalist>
                       <input
                         type="number" min={1} max={available || undefined} placeholder="Qtd"
                         className={`${inputCls} col-span-1 text-center`}
                         value={r.quantity}
+                        disabled={tracked}
+                        title={tracked ? 'Peça controlada por unidade: uma unidade por linha' : ''}
                         onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
                       />
                       <input
@@ -466,15 +544,6 @@ export default function Sales() {
                         value={r.unit_price}
                         onChange={(e) => updateRow(i, { unit_price: Number(e.target.value) })}
                       />
-                      <input
-                        type="text" list={`serials-${i}`} placeholder="Nº Série/Lote (opc.)"
-                        className={`${inputCls} col-span-4 text-xs`}
-                        value={r.serial_number}
-                        onChange={(e) => updateRow(i, { serial_number: e.target.value })}
-                      />
-                      <datalist id={`serials-${i}`}>
-                        {partSerials.map((s) => <option key={s} value={s} />)}
-                      </datalist>
                       <button type="button" className="col-span-1 icon-btn hover:text-red-600 justify-self-center" onClick={() => removeRow(i)}>
                         <X size={16} />
                       </button>

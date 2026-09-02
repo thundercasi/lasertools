@@ -5,6 +5,7 @@ import {
 import { supabase, type Part, type Sale, type Installment, BRL, formatDate } from '../lib/supabase';
 import { StatCard, Modal, Field } from './ui';
 import FinancialTimeline from './FinancialTimeline';
+import StockOverview from './StockOverview';
 
 export default function Dashboard() {
   const [parts, setParts] = useState<Part[]>([]);
@@ -152,6 +153,10 @@ export default function Dashboard() {
 
       <div className="mb-6">
         <FinancialTimeline />
+      </div>
+
+      <div className="mb-6">
+        <StockOverview />
       </div>
 
       {/* Collection alerts */}

@@ -23,6 +23,8 @@ export type Part = {
   brand: string | null;
   stock_quantity: number;
   in_maintenance: number;
+  tracked_by_unit: boolean;
+  photo_url: string | null;
   unit_cost: number;
   unit_price: number;
   min_stock: number;
@@ -62,6 +64,7 @@ export type PurchaseItem = {
   id: string;
   purchase_id: string;
   part_id: string;
+  condition: string;
   quantity: number;
   unit_cost: number;
   unit_cost_total: number;
@@ -103,6 +106,8 @@ export type SaleItem = {
   id: string;
   sale_id: string;
   part_id: string;
+  condition: string;
+  part_unit_id: string | null;
   quantity: number;
   unit_price: number;
   unit_cost: number;
@@ -176,6 +181,7 @@ export type AppSettings = {
   usd_spread_percent: number;
   usd_base_rate: number | null;
   usd_rate_updated_at: string | null;
+  order_defaults: Record<string, number> | null;
   updated_at: string;
 };
 
@@ -187,8 +193,34 @@ export type Maintenance = {
   description: string;
   provider: string | null;
   status: string;
+  condition: string;
+  part_unit_id: string | null;
   created_at: string;
   part?: Part | null;
+};
+
+export type PartUnit = {
+  id: string;
+  code: string | null;
+  part_id: string;
+  serial_number: string | null;
+  condition: string;
+  unit_cost: number;
+  status: string;
+  purchase_item_id: string | null;
+  sale_item_id: string | null;
+  notes: string | null;
+  created_at: string;
+  part?: Part | null;
+};
+
+export type PartStock = {
+  part_id: string;
+  condition: string;
+  comprado: number;
+  vendido: number;
+  em_manutencao: number;
+  disponivel: number;
 };
 
 export type Competitor = {

@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3, Wrench } from 'lucide-react';
-import { supabase, type Part, type Competitor, type CompetitionPrice, type Maintenance, BRL, USD, formatDate } from '../lib/supabase';
+import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3, Wrench, Copy, Image as ImageIcon } from 'lucide-react';
+import { supabase, type Part, type Competitor, type CompetitionPrice, type Maintenance, type PartUnit, type PartStock, BRL, USD, formatDate } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 
 const empty = {
   name: '', part_number: '', description: '', category: '', machine_model: '',
-  condition: 'Novo', brand: '', stock_quantity: 0, unit_cost: 0,
-  unit_price: 0, min_stock: 0,
+  brand: '', min_stock: 0, tracked_by_unit: false, photo_url: '',
 };
+
+// Catalog pricing is per condition now — the same part can be sold new
+// or used at different prices.
+const CONDITIONS = ['Novo', 'Usado'] as const;
+type CondPrices = Record<string, number>;
 
 const emptyPrice = {
   competitor_id: '', competitor: '', price: 0, currency: 'BRL',
@@ -28,6 +32,7 @@ export default function Parts() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
@@ -35,6 +40,25 @@ export default function Parts() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [priceRows, setPriceRows] = useState<PriceRow[]>([]);
   const [maintenanceRows, setMaintenanceRows] = useState<Maintenance[]>([]);
+  const [stock, setStock] = useState<PartStock[]>([]);
+  const [unitRows, setUnitRows] = useState<PartUnit[]>([]);
+  const [condPrices, setCondPrices] = useState<CondPrices>({ Novo: 0, Usado: 0 });
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [zoomPhoto, setZoomPhoto] = useState<{ url: string; name: string } | null>(null);
+
+  const uploadPhoto = async (file: File) => {
+    if (!file.type.startsWith('image/')) { setError('Selecione um arquivo de imagem.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('Imagem muito grande (máx. 5MB).'); return; }
+    setPhotoUploading(true);
+    setError('');
+    const ext = file.name.split('.').pop() || 'jpg';
+    const path = `${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('part-photos').upload(path, file, { upsert: false });
+    setPhotoUploading(false);
+    if (upErr) { setError('Falha ao enviar a foto: ' + upErr.message); return; }
+    const { data } = supabase.storage.from('part-photos').getPublicUrl(path);
+    setForm((f) => ({ ...f, photo_url: data.publicUrl }));
+  };
   const [editingPrice, setEditingPrice] = useState<PriceRow | null>(null);
   const [priceForm, setPriceForm] = useState(emptyPrice);
   const [priceOpen, setPriceOpen] = useState(false);
@@ -43,13 +67,28 @@ export default function Parts() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data, error }, { data: compData }] = await Promise.all([
+    const [{ data, error }, { data: compData }, { data: stockData }] = await Promise.all([
       supabase.from('parts').select('*').order('name'),
       supabase.from('competitors').select('*').order('name'),
+      supabase.from('part_stock').select('*'),
     ]);
     if (error) { setError(error.message); } else { setParts(data as Part[]); }
     setCompetitors((compData as Competitor[]) ?? []);
+    setStock((stockData as PartStock[]) ?? []);
     setLoading(false);
+  };
+
+  // Available balance per part, split by condition — e.g. { Novo: 3, Usado: 1 }
+  const stockOf = (partId: string) => {
+    const rows = stock.filter((s) => s.part_id === partId);
+    const byCond: Record<string, number> = {};
+    let total = 0;
+    for (const r of rows) {
+      const n = Number(r.disponivel) || 0;
+      if (n !== 0) byCond[r.condition] = n;
+      total += n;
+    }
+    return { byCond, total };
   };
 
   useEffect(() => { load(); }, []);
@@ -67,24 +106,57 @@ export default function Parts() {
 
   const openNew = () => {
     setEditing(null);
+    setDuplicating(false);
     setForm({ ...empty });
     setPriceRows([]);
     setMaintenanceRows([]);
+    setUnitRows([]);
+    setCondPrices({ Novo: 0, Usado: 0 });
+    setError('');
+    setOpen(true);
+  };
+
+  // Opens the form pre-filled from an existing part, but as a NEW record:
+  // catalog data (name, brand, part number, category, prices) is copied,
+  // while everything specific to the original unit is left out — stock and
+  // unit_cost are derived from that part's own purchases/sales, and the
+  // competitor-price and maintenance histories belong to it alone.
+  const openDuplicate = (p: Part) => {
+    setEditing(null);
+    setDuplicating(true);
+    setForm({
+      name: p.name, part_number: p.part_number ?? '', description: p.description ?? '',
+      category: p.category ?? '', machine_model: p.machine_model ?? '',
+      brand: p.brand ?? '',
+      min_stock: Number(p.min_stock) || 0,
+      tracked_by_unit: !!p.tracked_by_unit,
+      photo_url: '',
+    });
+    setPriceRows([]);
+    setMaintenanceRows([]);
+    setUnitRows([]);
+    setCondPrices({ Novo: 0, Usado: 0 });
     setError('');
     setOpen(true);
   };
 
   const openEdit = async (p: Part) => {
     setEditing(p);
+    setDuplicating(false);
     setForm({
       name: p.name, part_number: p.part_number ?? '', description: p.description ?? '',
       category: p.category ?? '', machine_model: p.machine_model ?? '',
-      condition: p.condition ?? 'Novo', brand: p.brand ?? '',
-      stock_quantity: Number(p.stock_quantity) || 0,
-      unit_cost: Number(p.unit_cost) || 0,
-      unit_price: Number(p.unit_price) || 0,
+      brand: p.brand ?? '',
       min_stock: Number(p.min_stock) || 0,
+      tracked_by_unit: !!p.tracked_by_unit,
+      photo_url: p.photo_url ?? '',
     });
+    const { data: cp } = await supabase.from('part_condition_prices').select('*').eq('part_id', p.id);
+    const cpMap: CondPrices = { Novo: 0, Usado: 0 };
+    for (const row of ((cp as any[]) ?? [])) cpMap[row.condition] = Number(row.unit_price) || 0;
+    setCondPrices(cpMap);
+    const { data: units } = await supabase.from('part_units').select('*').eq('part_id', p.id).order('code');
+    setUnitRows((units as PartUnit[]) ?? []);
     const { data: prices } = await supabase
       .from('competition_prices')
       .select('*, competitor_ref:competitor_id(*)')
@@ -114,12 +186,13 @@ export default function Parts() {
       description: form.description || null,
       category: form.category || null,
       machine_model: form.machine_model || null,
-      condition: form.condition || 'Novo',
       brand: form.brand || null,
-      stock_quantity: Number(form.stock_quantity),
-      unit_cost: Number(form.unit_cost),
-      unit_price: Number(form.unit_price),
       min_stock: Number(form.min_stock),
+      tracked_by_unit: !!form.tracked_by_unit,
+      photo_url: form.photo_url || null,
+      // Kept in sync as a convenience/legacy value: the highest
+      // per-condition price. Real pricing lives in part_condition_prices.
+      unit_price: Math.max(...CONDITIONS.map((c) => Number(condPrices[c]) || 0), 0),
     };
     let partId = editing?.id;
     let err;
@@ -147,10 +220,29 @@ export default function Parts() {
         await supabase.from('competition_prices').insert(pending);
       }
     }
+    // Persist per-condition pricing.
+    if (!err && partId) {
+      for (const c of CONDITIONS) {
+        const v = Number(condPrices[c]) || 0;
+        const { data: existing } = await supabase
+          .from('part_condition_prices').select('id').eq('part_id', partId).eq('condition', c).maybeSingle();
+        if (existing) {
+          await supabase.from('part_condition_prices').update({ unit_price: v }).eq('id', (existing as any).id);
+        } else if (v > 0) {
+          await supabase.from('part_condition_prices').insert({ part_id: partId, condition: c, unit_price: v });
+        }
+      }
+    }
+
     setSaving(false);
     if (err) { setError(err.message); return; }
     setOpen(false);
     load();
+  };
+
+  const updateUnitSerial = async (unitId: string, serial: string) => {
+    await supabase.from('part_units').update({ serial_number: serial.trim() || null }).eq('id', unitId);
+    setUnitRows((prev) => prev.map((u) => (u.id === unitId ? { ...u, serial_number: serial.trim() || null } : u)));
   };
 
   const remove = async () => {
@@ -299,7 +391,7 @@ export default function Parts() {
                   <th className="th">Nome</th>
                   <th className="th">Marca</th>
                   <th className="th">Categoria</th>
-                  <th className="th">Estado</th>
+                  <th className="th">Controle</th>
                   <th className="th text-right">Disponível</th>
                   <th className="th text-right">Em manut.</th>
                   <th className="th text-right">Custo</th>
@@ -309,23 +401,45 @@ export default function Parts() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((p) => {
-                  const low = p.stock_quantity <= p.min_stock;
+                  const st = stockOf(p.id);
+                  const low = st.total <= Number(p.min_stock);
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition">
                       <td className="td font-medium text-slate-900">
-                        {p.name}
-                        {p.part_number && <div className="text-xs font-normal text-slate-400">P/N: {p.part_number}</div>}
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden shrink-0 border border-slate-200 ${p.photo_url ? 'cursor-zoom-in hover:ring-2 hover:ring-sky-300 transition' : ''}`}
+                            onClick={(e) => { if (p.photo_url) { e.stopPropagation(); setZoomPhoto({ url: p.photo_url, name: p.name }); } }}
+                          >
+                            {p.photo_url ? (
+                              <img src={p.photo_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <ImageIcon size={14} className="text-slate-300" />
+                            )}
+                          </div>
+                          <div>
+                            {p.name}
+                            {p.part_number && <div className="text-xs font-normal text-slate-400">P/N: {p.part_number}</div>}
+                          </div>
+                        </div>
                       </td>
                       <td className="td text-slate-600">{p.brand || '—'}</td>
                       <td className="td text-slate-600">{p.category || '—'}</td>
                       <td className="td">
-                        <Badge tone={p.condition === 'Novo' ? 'green' : 'amber'}>{p.condition}</Badge>
+                        {p.tracked_by_unit
+                          ? <Badge tone="blue">Por unidade</Badge>
+                          : <span className="text-xs text-slate-400">Por quantidade</span>}
                       </td>
                       <td className="td text-right">
                         <span className={`inline-flex items-center gap-1 ${low ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>
                           {low && <AlertTriangle size={13} />}
-                          {p.stock_quantity}
+                          {st.total}
                         </span>
+                        {Object.keys(st.byCond).length > 0 && (
+                          <div className="text-xs font-normal text-slate-400">
+                            {Object.entries(st.byCond).map(([c, n]) => `${n} ${c.toLowerCase()}`).join(' · ')}
+                          </div>
+                        )}
                       </td>
                       <td className="td text-right">
                         {Number(p.in_maintenance) > 0
@@ -336,8 +450,9 @@ export default function Parts() {
                       <td className="td text-right font-semibold text-slate-900">{BRL(p.unit_price)}</td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
-                          <button className="icon-btn" onClick={() => openEdit(p)}><Pencil size={15} /></button>
-                          <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(p.id)}><Trash2 size={15} /></button>
+                          <button className="icon-btn" title="Editar" onClick={() => openEdit(p)}><Pencil size={15} /></button>
+                          <button className="icon-btn" title="Replicar" onClick={() => openDuplicate(p)}><Copy size={15} /></button>
+                          <button className="icon-btn hover:text-red-600" title="Excluir" onClick={() => setDeleteId(p.id)}><Trash2 size={15} /></button>
                         </div>
                       </td>
                     </tr>
@@ -350,41 +465,111 @@ export default function Parts() {
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar peça' : 'Nova peça'} onClose={() => setOpen(false)} wide>
+        <Modal title={editing ? 'Editar peça' : duplicating ? 'Replicar peça' : 'Nova peça'} onClose={() => setOpen(false)} wide>
           <div className="space-y-4">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+            {duplicating && (
+              <div className="text-xs text-sky-700 bg-sky-50 rounded-lg p-3">
+                Replicando os dados de cadastro. Estoque, custo, preços de concorrentes e histórico de manutenções não são copiados — eles pertencem à peça original. Ajuste o que precisar e salve como uma peça nova.
+              </div>
+            )}
+
+            <div className="flex items-center gap-4">
+              <div className="w-24 h-24 rounded-xl bg-slate-100 flex items-center justify-center overflow-hidden shrink-0 border border-slate-200">
+                {form.photo_url ? (
+                  <img src={form.photo_url} alt="Foto da peça" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon size={28} className="text-slate-300" />
+                )}
+              </div>
+              <div>
+                <label className="btn-secondary cursor-pointer inline-flex">
+                  {photoUploading ? 'Enviando...' : form.photo_url ? 'Trocar foto' : 'Adicionar foto'}
+                  <input
+                    type="file" accept="image/*" className="hidden" disabled={photoUploading}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ''; }}
+                  />
+                </label>
+                {form.photo_url && (
+                  <button type="button" className="ml-2 text-xs text-slate-400 hover:text-red-600" onClick={() => setForm({ ...form, photo_url: '' })}>
+                    Remover
+                  </button>
+                )}
+                <p className="text-xs text-slate-400 mt-1">Foto ilustrativa da peça (opcional). JPG, PNG — até 5MB.</p>
+              </div>
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
               <Field label="Part Number" hint="identificador da peça no mercado"><input className={inputCls} value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} /></Field>
               <Field label="Marca"><input className={inputCls} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></Field>
               <Field label="Categoria"><input className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
               <Field label="Modelo da máquina"><input className={inputCls} value={form.machine_model} onChange={(e) => setForm({ ...form, machine_model: e.target.value })} /></Field>
-              <Field label="Estado">
-                <select className={inputCls} value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
-                  <option value="Novo">Novo</option>
-                  <option value="Usado">Usado</option>
-                </select>
-              </Field>
+              <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
             </div>
             <Field label="Descrição"><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
-            <div className="grid sm:grid-cols-4 gap-4">
-              <Field label="Disponível" hint="calculado (compras - vendas - manutenções)">
-                <input type="number" className={`${inputCls} opacity-60 cursor-not-allowed`} value={form.stock_quantity} disabled readOnly />
-              </Field>
-              <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
-              <Field label="Custo unit. (R$)"><input type="number" step="0.01" className={inputCls} value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: Number(e.target.value) })} /></Field>
-              <Field label="Preço unit. (R$)"><input type="number" step="0.01" className={inputCls} value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: Number(e.target.value) })} /></Field>
+
+            <label className="flex items-start gap-2.5 cursor-pointer select-none bg-slate-50 rounded-xl p-3">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 mt-0.5"
+                checked={form.tracked_by_unit}
+                onChange={(e) => setForm({ ...form, tracked_by_unit: e.target.checked })}
+              />
+              <span>
+                <span className="text-sm font-medium text-slate-800">Controlar por unidade</span>
+                <span className="block text-xs text-slate-400">
+                  Cada exemplar vira um registro próprio, com número de série (opcional), custo real e histórico de manutenção.
+                  Indicado para peças de maior valor. Sem isso, a peça é controlada apenas por quantidade.
+                </span>
+              </span>
+            </label>
+
+            {/* Per-condition pricing */}
+            <div className="border-t border-slate-200 pt-4">
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Preço de venda por condição</span>
+              <div className="grid sm:grid-cols-2 gap-4 mt-3">
+                {CONDITIONS.map((c) => {
+                  const st = editing ? stockOf(editing.id).byCond[c] ?? 0 : 0;
+                  return (
+                    <Field key={c} label={`${c} (R$)`} hint={editing ? `${st} em estoque` : undefined}>
+                      <input
+                        type="number" step="0.01" className={inputCls}
+                        value={condPrices[c] ?? 0}
+                        onChange={(e) => setCondPrices({ ...condPrices, [c]: Number(e.target.value) })}
+                      />
+                    </Field>
+                  );
+                })}
+              </div>
             </div>
-            {form.unit_cost > 0 && form.unit_price > 0 && (() => {
-              const margin = form.unit_price - form.unit_cost;
-              const marginPct = (margin / form.unit_price) * 100;
-              return (
-                <div className="bg-emerald-50 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between">
-                  <span className="text-xs font-semibold text-emerald-500 uppercase tracking-wide">Margem projetada</span>
-                  <span className="font-semibold text-emerald-700">{BRL(margin)} ({marginPct.toFixed(1)}%)</span>
-                </div>
-              );
-            })()}
+
+            {/* Units of this part */}
+            {editing && form.tracked_by_unit && (
+              <div className="border-t border-slate-200 pt-4">
+                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Unidades ({unitRows.length})</span>
+                {unitRows.length === 0 ? (
+                  <p className="text-xs text-slate-400 mt-2">Nenhuma unidade ainda. Elas são criadas automaticamente ao registrar uma compra desta peça.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {unitRows.map((u) => (
+                      <div key={u.id} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2.5">
+                        <span className="text-xs font-mono text-slate-500 w-16 shrink-0">{u.code}</span>
+                        <Badge tone={u.condition === 'Novo' ? 'green' : 'amber'}>{u.condition}</Badge>
+                        <input
+                          className={`${inputCls} text-xs flex-1`}
+                          placeholder="Nº de série (opcional)"
+                          defaultValue={u.serial_number ?? ''}
+                          onBlur={(e) => updateUnitSerial(u.id, e.target.value)}
+                        />
+                        <span className="text-xs text-slate-500 w-20 text-right shrink-0">{BRL(u.unit_cost)}</span>
+                        <Badge tone={u.status === 'Disponível' ? 'green' : u.status === 'Vendida' ? 'slate' : 'amber'}>{u.status}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Competitor prices */}
             <div className="border-t border-slate-200 pt-4">
               <div className="flex items-center justify-between mb-3">
@@ -516,6 +701,23 @@ export default function Parts() {
         <Modal title="Excluir preço" onClose={() => setPriceDeleteId(null)}>
           <ConfirmDelete message="Excluir este preço de concorrente?" onConfirm={removePrice} onCancel={() => setPriceDeleteId(null)} />
         </Modal>
+      )}
+
+      {zoomPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/80 flex items-center justify-center p-6 cursor-zoom-out"
+          onClick={() => setZoomPhoto(null)}
+        >
+          <div className="max-w-2xl max-h-[85vh] flex flex-col items-center gap-3">
+            <img
+              src={zoomPhoto.url}
+              alt={zoomPhoto.name}
+              className="max-w-full max-h-[75vh] object-contain rounded-xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span className="text-white text-sm font-medium">{zoomPhoto.name}</span>
+          </div>
+        </div>
       )}
     </div>
   );
