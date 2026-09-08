@@ -6,7 +6,7 @@ import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone 
 
 const empty = {
   name: '', part_number: '', description: '', category: '', machine_model: '',
-  brand: '', min_stock: 0, tracked_by_unit: false, photo_url: '',
+  brand: '', min_stock: 0, tracked_by_unit: false, photo_url: '', warranty_months: 0,
 };
 
 // Catalog pricing is per condition now — the same part can be sold new
@@ -131,6 +131,7 @@ export default function Parts() {
       min_stock: Number(p.min_stock) || 0,
       tracked_by_unit: !!p.tracked_by_unit,
       photo_url: '',
+      warranty_months: Number(p.warranty_months) || 0,
     });
     setPriceRows([]);
     setMaintenanceRows([]);
@@ -150,6 +151,7 @@ export default function Parts() {
       min_stock: Number(p.min_stock) || 0,
       tracked_by_unit: !!p.tracked_by_unit,
       photo_url: p.photo_url ?? '',
+      warranty_months: Number(p.warranty_months) || 0,
     });
     const { data: cp } = await supabase.from('part_condition_prices').select('*').eq('part_id', p.id);
     const cpMap: CondPrices = { Novo: 0, Usado: 0 };
@@ -190,6 +192,7 @@ export default function Parts() {
       min_stock: Number(form.min_stock),
       tracked_by_unit: !!form.tracked_by_unit,
       photo_url: form.photo_url || null,
+      warranty_months: Number(form.warranty_months) || null,
       // Kept in sync as a convenience/legacy value: the highest
       // per-condition price. Real pricing lives in part_condition_prices.
       unit_price: Math.max(...CONDITIONS.map((c) => Number(condPrices[c]) || 0), 0),
@@ -506,6 +509,7 @@ export default function Parts() {
               <Field label="Categoria"><input className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
               <Field label="Modelo da máquina"><input className={inputCls} value={form.machine_model} onChange={(e) => setForm({ ...form, machine_model: e.target.value })} /></Field>
               <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
+              <Field label="Tempo de garantia (meses)"><input type="number" min={0} className={inputCls} value={form.warranty_months} onChange={(e) => setForm({ ...form, warranty_months: Number(e.target.value) })} /></Field>
             </div>
             <Field label="Descrição"><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
 

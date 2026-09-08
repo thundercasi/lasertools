@@ -42,6 +42,7 @@ export type Part = {
   in_maintenance: number;
   tracked_by_unit: boolean;
   photo_url: string | null;
+  warranty_months: number | null;
   unit_cost: number;
   unit_price: number;
   min_stock: number;
