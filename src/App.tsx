@@ -1,10 +1,14 @@
 import { useState } from 'react';
-import logoIcon from './assets/logo-icon.svg';
+import logo from './assets/logo.png';
 import {
-  LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users,
-  Wallet, Search, Boxes, Menu, X, ClipboardList, Wrench, Settings as SettingsIcon,
+  LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users as UsersIcon,
+  Wallet, Boxes, Menu, X, ClipboardList, Wrench, Settings as SettingsIcon,
+  LogOut, Loader2, ShieldAlert, KeyRound,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
+import { useAuth } from './lib/useAuth';
+import { ROLE_LABELS } from './lib/supabase';
+import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Parts from './components/Parts';
 import MaintenanceScreen from './components/Maintenance';
@@ -17,12 +21,17 @@ import Customers from './components/Customers';
 import Financial from './components/Financial';
 import Payables from './components/Payables';
 import Competition from './components/Competition';
+import UsersScreen from './components/Users';
+import ChangePassword from './components/ChangePassword';
 
 type ViewId =
   | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases'
-  | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance' | 'competition' | 'settings';
+  | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance'
+  | 'competition' | 'settings' | 'users';
 
-type NavItem = { id: ViewId; label: string; icon: typeof Package };
+// undefined roles = every role can see it (besides 'sem_papel', which never
+// sees anything — gated separately, before the menu even renders).
+type NavItem = { id: ViewId; label: string; icon: typeof Package; roles?: string[] };
 type NavGroup = { label: string; items: NavItem[] };
 
 const navGroups: NavGroup[] = [
@@ -35,46 +44,83 @@ const navGroups: NavGroup[] = [
   {
     label: 'Cadastros',
     items: [
-      { id: 'parts', label: 'Peças', icon: Boxes },
-      { id: 'suppliers', label: 'Fornecedores', icon: Truck },
-      { id: 'customers', label: 'Clientes', icon: Users },
-      { id: 'competition', label: 'Concorrentes', icon: Users },
+      { id: 'parts', label: 'Peças', icon: Boxes, roles: ['admin', 'vendedor', 'estoque_compras'] },
+      { id: 'suppliers', label: 'Fornecedores', icon: Truck, roles: ['admin', 'estoque_compras'] },
+      { id: 'customers', label: 'Clientes', icon: UsersIcon, roles: ['admin', 'vendedor'] },
+      { id: 'competition', label: 'Concorrentes', icon: UsersIcon, roles: ['admin', 'estoque_compras'] },
     ],
   },
   {
     label: 'Operações',
     items: [
-      { id: 'orders', label: 'Pedidos', icon: ClipboardList },
-      { id: 'purchases', label: 'Compras', icon: ShoppingCart },
-      { id: 'sales', label: 'Vendas', icon: Receipt },
-      { id: 'maintenance', label: 'Manutenções', icon: Wrench },
+      { id: 'orders', label: 'Pedidos', icon: ClipboardList, roles: ['admin', 'vendedor', 'estoque_compras'] },
+      { id: 'purchases', label: 'Compras', icon: ShoppingCart, roles: ['admin', 'estoque_compras'] },
+      { id: 'sales', label: 'Vendas', icon: Receipt, roles: ['admin', 'vendedor'] },
+      { id: 'maintenance', label: 'Manutenções', icon: Wrench, roles: ['admin', 'estoque_compras'] },
     ],
   },
   {
     label: 'Financeiro',
     items: [
-      { id: 'financial', label: 'Contas a Receber', icon: Wallet },
-      { id: 'payables', label: 'Contas a Pagar', icon: Wallet },
+      { id: 'financial', label: 'Contas a Receber', icon: Wallet, roles: ['admin', 'financeiro'] },
+      { id: 'payables', label: 'Contas a Pagar', icon: Wallet, roles: ['admin', 'financeiro'] },
     ],
   },
   {
     label: 'Sistema',
     items: [
-      { id: 'settings', label: 'Configurações', icon: SettingsIcon },
+      { id: 'users', label: 'Usuários', icon: UsersIcon, roles: ['admin'] },
+      { id: 'settings', label: 'Configurações', icon: SettingsIcon, roles: ['admin'] },
     ],
   },
 ];
 
-const navItems: NavItem[] = navGroups.flatMap((g) => g.items);
+function PendingApproval({ email, onSignOut }: { email: string; onSignOut: () => void }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="max-w-sm text-center">
+        <ShieldAlert size={40} className="text-amber-500 mx-auto mb-4" />
+        <h1 className="text-lg font-bold text-slate-900 mb-2">Aguardando liberação</h1>
+        <p className="text-sm text-slate-500 mb-1">
+          Sua conta (<span className="font-medium text-slate-700">{email}</span>) foi criada, mas ainda não tem
+          nenhum papel de acesso atribuído.
+        </p>
+        <p className="text-sm text-slate-500 mb-6">Peça a um administrador do sistema para liberar seu acesso.</p>
+        <button className="btn-secondary" onClick={onSignOut}>Sair</button>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
+  const { session, profile, loading, signOut } = useAuth();
   const [view, setView] = useSessionState<ViewId>('app:view', 'dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
-  const current = navItems.find((n) => n.id === view)!;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 size={24} className="animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  if (!session) return <Login />;
+
+  if (!profile || profile.role === 'sem_papel' || !profile.active) {
+    return <PendingApproval email={session.user.email ?? ''} onSignOut={signOut} />;
+  }
+
+  const role = profile.role;
+  const visibleGroups = navGroups
+    .map((g) => ({ ...g, items: g.items.filter((n) => !n.roles || n.roles.includes(role)) }))
+    .filter((g) => g.items.length > 0);
+  const navItems = visibleGroups.flatMap((g) => g.items);
+  const current = navItems.find((n) => n.id === view) ?? navItems[0];
 
   const render = () => {
-    switch (view) {
+    switch (current.id) {
       case 'dashboard': return <Dashboard />;
       case 'parts': return <Parts />;
       case 'maintenance': return <MaintenanceScreen />;
@@ -87,6 +133,7 @@ export default function App() {
       case 'payables': return <Payables />;
       case 'competition': return <Competition />;
       case 'settings': return <Settings />;
+      case 'users': return <UsersScreen myId={session.user.id} />;
     }
   };
 
@@ -98,25 +145,19 @@ export default function App() {
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        <div className="h-16 flex items-center gap-3 px-5 border-b border-slate-200">
-          <div className="w-10 h-10 flex items-center justify-center shrink-0">
-            <img src={logoIcon} alt="Laser Tools" className="w-full h-full" />
-          </div>
-          <div>
-            <div className="font-bold text-slate-900 leading-tight tracking-wide" style={{ fontFamily: 'Georgia, serif' }}>LASER TOOLS</div>
-            <div className="text-[10px] text-amber-700 font-semibold tracking-[0.15em]">COMPONENTS</div>
-          </div>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-200">
+          <img src={logo} alt="Laser Tools Components" className="w-36 object-contain" />
           <button className="ml-auto lg:hidden icon-btn" onClick={() => setMobileOpen(false)}>
             <X size={18} />
           </button>
         </div>
         <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
-          {navGroups.map((group) => (
+          {visibleGroups.map((group) => (
             <div key={group.label}>
               <div className="px-3 mb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{group.label}</div>
               <div className="space-y-1">
                 {group.items.map((n) => {
-                  const active = view === n.id;
+                  const active = current.id === n.id;
                   const Icon = n.icon;
                   return (
                     <button
@@ -138,7 +179,24 @@ export default function App() {
           ))}
         </nav>
         <div className="p-4 border-t border-slate-200">
-          <div className="text-[11px] text-slate-400">© 2026 LaserParts ERP</div>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500 shrink-0">
+              {(profile.full_name || profile.email).slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-slate-700 truncate">{profile.full_name || profile.email}</div>
+              <div className="text-[10px] text-slate-400 truncate">{ROLE_LABELS[role] ?? role}</div>
+            </div>
+            <div className="ml-auto flex items-center gap-1 shrink-0">
+              <button className="icon-btn" title="Trocar senha" onClick={() => setChangingPassword(true)}>
+                <KeyRound size={16} />
+              </button>
+              <button className="icon-btn" title="Sair" onClick={() => signOut()}>
+                <LogOut size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-400">© 2026 LaserTools Componentes</div>
         </div>
       </aside>
 
@@ -161,6 +219,7 @@ export default function App() {
           {render()}
         </main>
       </div>
+      {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
     </div>
   );
 }

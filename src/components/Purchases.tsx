@@ -19,7 +19,7 @@ type PurchaseStatus = typeof PURCHASE_STATUS[number];
 
 const emptyForm = {
   code: '', supplier_id: '', is_import: false, currency: 'BRL', exchange_rate: 0,
-  iof_percent: 0, iof_value: 0, rate_confirmed: true,
+  iof_value: 0, rate_confirmed: true,
   status: 'Pendente' as PurchaseStatus, payment_status: 'Pendente' as PaymentStatus,
   purchase_date: new Date().toISOString().slice(0, 10), notes: '',
   payment_method: 'PIX' as PaymentMethod, first_installment_date: '',
@@ -150,7 +150,7 @@ export default function Purchases() {
     setForm({
       code: p.code, supplier_id: p.supplier_id ?? '', is_import: p.is_import,
       currency: p.currency, exchange_rate: p.currency === 'BRL' ? 1 : (Number(p.exchange_rate) || 1),
-      iof_percent: 0, iof_value: Number(p.iof) || 0,
+      iof_value: Number(p.iof) || 0,
       rate_confirmed: p.rate_confirmed, status: p.status as PurchaseStatus,
       payment_status: (PAYMENT_STATUS.includes(p.payment_status as PaymentStatus) ? p.payment_status : 'Pendente') as PaymentStatus,
       purchase_date: p.purchase_date, notes: p.notes ?? '',
@@ -202,20 +202,22 @@ export default function Purchases() {
 
   const freight = Number(form.freight) || 0;
   const otherExpenses = Number(form.other_expenses) || 0;
-  // Import tax is always entered in R$ and is never converted — it's added
-  // at the very end, on top of the BRL-converted subtotal.
+  // Import tax and IOF are always entered directly in R$ and are never
+  // converted — both are added at the very end, on top of the
+  // BRL-converted subtotal.
   const importTax = !form.is_import ? 0 : (Number(form.import_tax) || 0);
+  const iofAmountBRL = !form.is_import ? 0 : (Number(form.iof_value) || 0);
   const exchangeRate = Number(form.exchange_rate) || 1;
   const toBRL = (v: number) => (form.currency === 'USD' ? v * exchangeRate : v);
 
   const itemsTotal = computedTotal; // in form.currency
   const foreignExtras = freight + otherExpenses; // in form.currency
   const subtotalBRL = toBRL(itemsTotal + foreignExtras);
-  // Total geral is always expressed in R$, since the import tax can never
-  // be converted and everything else must be brought to the same currency
-  // before summing.
-  const grandTotal = subtotalBRL + importTax;
-  const extraCostsBRL = toBRL(foreignExtras) + importTax;
+  // Total geral is always expressed in R$, since import tax and IOF can
+  // never be converted and everything else must be brought to the same
+  // currency before summing.
+  const grandTotal = subtotalBRL + importTax + iofAmountBRL;
+  const extraCostsBRL = toBRL(foreignExtras) + importTax + iofAmountBRL;
 
   const save = async (syncFinancial: boolean = true) => {
     setError('');
@@ -231,7 +233,7 @@ export default function Purchases() {
         is_import: form.is_import,
         currency: form.currency,
         exchange_rate: Number(form.exchange_rate),
-        iof: Number(form.iof_value),
+        iof: iofAmountBRL,
         rate_confirmed: form.currency === 'BRL' ? true : form.rate_confirmed,
         status: form.status,
         // payment_status is intentionally NOT sent — it's derived from the
@@ -548,11 +550,12 @@ export default function Purchases() {
                     </div>
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
-                    <Field label="Valor IOF" hint={form.currency === 'BRL' ? '(rateio sem conversão de câmbio)' : ''}>
+                    <Field label="Valor IOF (R$)" hint={form.is_import ? 'compõe o custo total' : 'só se aplica a importação'}>
                       <input
                         type="number" step="0.01"
                         className={inputCls}
                         value={form.iof_value}
+                        disabled={!form.is_import}
                         onChange={(e) => setIofValue(Number(e.target.value))}
                       />
                     </Field>
@@ -697,6 +700,12 @@ export default function Purchases() {
                       <div className="flex justify-between gap-6">
                         <span className="text-slate-500">Taxa de importação (R$):</span>
                         <span className="font-semibold text-slate-700">{BRL(importTax)}</span>
+                      </div>
+                    )}
+                    {iofAmountBRL > 0 && (
+                      <div className="flex justify-between gap-6">
+                        <span className="text-slate-500">IOF (R$):</span>
+                        <span className="font-semibold text-slate-700">{BRL(iofAmountBRL)}</span>
                       </div>
                     )}
                     <div className="flex justify-between gap-6 border-t border-slate-200 pt-1">

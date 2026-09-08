@@ -8,8 +8,25 @@ if (!url || !anonKey) {
 }
 
 export const supabase = createClient(url, anonKey, {
-  auth: { persistSession: false },
+  auth: { persistSession: true, autoRefreshToken: true },
 });
+
+export type Profile = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  active: boolean;
+  created_at: string;
+};
+
+export const ROLE_LABELS: Record<string, string> = {
+  admin: 'Administrador',
+  vendedor: 'Vendedor',
+  estoque_compras: 'Estoque/Compras',
+  financeiro: 'Financeiro',
+  sem_papel: 'Sem papel (aguardando liberação)',
+};
 
 export type Part = {
   id: string;
