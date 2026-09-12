@@ -108,19 +108,26 @@ export function StatCard({
 }
 
 export function ConfirmDelete({
-  title = 'Excluir registro', message, onConfirm, onCancel,
+  title = 'Excluir registro', message, paidCount = 0, onConfirm, onCancel,
 }: {
   title?: string;
   message: string;
+  paidCount?: number;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600">{message}</p>
+      {paidCount > 0 && (
+        <p className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
+          ⚠️ {paidCount === 1 ? 'Há 1 parcela já baixada' : `Há ${paidCount} parcelas já baixadas`} vinculada(s) a este registro.
+          Ao confirmar, {paidCount === 1 ? 'ela voltará' : 'elas voltarão'} para o status "Aberto" e {paidCount === 1 ? 'será excluída' : 'serão excluídas'} junto.
+        </p>
+      )}
       <div className="flex justify-end gap-2">
         <button className="btn-secondary" onClick={onCancel}>Cancelar</button>
-        <button className="btn-danger" onClick={onConfirm}>Excluir</button>
+        <button className="btn-danger" onClick={onConfirm}>{paidCount > 0 ? 'Excluir mesmo assim' : 'Excluir'}</button>
       </div>
     </div>
   );
@@ -131,8 +138,9 @@ export function ConfirmDelete({
 // financial installments (Contas a Receber/Pagar), or just update the
 // record itself (e.g. when only a status field changed).
 export function ConfirmFinancialSync({
-  onSync, onSkip, onCancel,
+  paidCount = 0, onSync, onSkip, onCancel,
 }: {
+  paidCount?: number;
   onSync: () => void;
   onSkip: () => void;
   onCancel: () => void;
@@ -145,6 +153,11 @@ export function ConfirmFinancialSync({
       <p className="text-xs text-slate-400">
         Se você só alterou um status ou outro detalhe sem impacto financeiro, escolha "Não" — as parcelas já lançadas continuam como estão.
       </p>
+      {paidCount > 0 && (
+        <p className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
+          ⚠️ {paidCount === 1 ? 'Há 1 parcela já baixada' : `Há ${paidCount} parcelas já baixadas`}. Se escolher "Sim", {paidCount === 1 ? 'ela voltará' : 'elas voltarão'} para o status "Aberto" — o registro do pagamento se perde.
+        </p>
+      )}
       <div className="flex justify-end gap-2 flex-wrap">
         <button className="btn-secondary" onClick={onCancel}>Cancelar</button>
         <button className="btn-secondary" onClick={onSkip}>Não, só salvar</button>

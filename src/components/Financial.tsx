@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Wallet, CheckCircle2, Clock, AlertCircle, Bell, Search, Undo2 } from 'lucide-react';
-import { supabase, type Installment, BRL, formatDate } from '../lib/supabase';
+import { Wallet, CheckCircle2, Clock, AlertCircle, Bell, Search, Undo2, Barcode, Copy, Check, Loader2 } from 'lucide-react';
+import { supabase, type Installment, type Boleto, BRL, formatDate } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader } from './ui';
 
 export default function Financial() {
   const [items, setItems] = useState<Installment[]>([]);
+  const [boletos, setBoletos] = useState<Record<string, Boleto>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'overdue' | 'paid' | 'today'>('all');
   const [query, setQuery] = useState('');
@@ -13,6 +14,29 @@ export default function Financial() {
   const [baixaAmount, setBaixaAmount] = useState(0);
   const [baixaSaving, setBaixaSaving] = useState(false);
   const [error, setError] = useState('');
+  const [emittingId, setEmittingId] = useState<string | null>(null);
+  const [viewingBoleto, setViewingBoleto] = useState<Boleto | null>(null);
+  const [boletoError, setBoletoError] = useState('');
+
+  const loadBoletos = async () => {
+    const { data } = await supabase.from('boletos').select('*').order('created_at', { ascending: false });
+    const map: Record<string, Boleto> = {};
+    for (const b of ((data as Boleto[]) ?? [])) {
+      // Keep only the most recent boleto per installment (list is already newest-first).
+      if (!map[b.installment_id]) map[b.installment_id] = b;
+    }
+    setBoletos(map);
+  };
+
+  const emitirBoleto = async (installmentId: string) => {
+    setEmittingId(installmentId);
+    setBoletoError('');
+    const { data, error: e } = await supabase.functions.invoke('emit-boleto', { body: { installment_id: installmentId } });
+    setEmittingId(null);
+    if (e || data?.error) { setBoletoError(data?.error || e?.message || 'Falha ao emitir boleto.'); return; }
+    await loadBoletos();
+    if (data?.boleto) setViewingBoleto(data.boleto as Boleto);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -28,7 +52,7 @@ export default function Financial() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadBoletos(); }, []);
 
   const today = new Date().toISOString().slice(0, 10);
   const isOverdue = (i: Installment) => !i.paid && i.due_date < today;
@@ -59,18 +83,27 @@ export default function Financial() {
   const openBaixa = (i: Installment) => {
     setBaixa(i);
     setBaixaDate(today);
-    setBaixaAmount(Number(i.amount));
+    const remaining = Number(i.amount) - Number(i.paid_amount || 0);
+    setBaixaAmount(Math.max(remaining, 0));
     setError('');
   };
 
   const confirmBaixa = async () => {
     if (!baixa) return;
     if (baixaAmount <= 0) { setError('Informe um valor maior que zero.'); return; }
+    const alreadyPaid = Number(baixa.paid_amount || 0);
+    const remaining = Number(baixa.amount) - alreadyPaid;
+    if (baixaAmount > remaining + 0.01) {
+      setError(`O valor não pode ser maior que o saldo restante (${BRL(remaining)}).`);
+      return;
+    }
+    const newPaidAmount = alreadyPaid + baixaAmount;
+    const isFullyPaid = newPaidAmount >= Number(baixa.amount) - 0.01;
     setBaixaSaving(true);
     const { error } = await supabase.from('installments').update({
-      paid: true,
+      paid: isFullyPaid,
       paid_date: baixaDate,
-      paid_amount: baixaAmount,
+      paid_amount: newPaidAmount,
     }).eq('id', baixa.id);
     setBaixaSaving(false);
     if (error) { setError(error.message); return; }
@@ -98,6 +131,7 @@ export default function Financial() {
   return (
     <div>
       <PageHeader title="Contas a Receber" subtitle="Gestão de parcelas e inadimplência." />
+      {boletoError && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">{boletoError}</div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <div className="card p-5">
@@ -184,25 +218,52 @@ export default function Financial() {
                       </td>
                       <td className="td text-slate-600">#{i.installment_number}</td>
                       <td className="td">
-                        {i.paid ? <Badge tone="green">Pago</Badge> : overdue ? <Badge tone="red">Atrasado</Badge> : dueToday ? <Badge tone="amber">Vence hoje</Badge> : <Badge tone="blue">Pendente</Badge>}
+                        {i.paid ? <Badge tone="green">Pago</Badge> : Number(i.paid_amount || 0) > 0 ? <Badge tone="blue">Parcial</Badge> : overdue ? <Badge tone="red">Atrasado</Badge> : dueToday ? <Badge tone="amber">Vence hoje</Badge> : <Badge tone="blue">Pendente</Badge>}
                       </td>
-                      <td className="td text-right font-semibold text-slate-900">{BRL(i.paid ? i.paid_amount : i.amount)}</td>
                       <td className="td text-right">
-                        {i.paid ? (
-                          <button
-                            onClick={() => estornar(i)}
-                            className="text-xs font-semibold px-3 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition inline-flex items-center gap-1"
-                          >
-                            <Undo2 size={13} /> Estornar
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => openBaixa(i)}
-                            className="text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition"
-                          >
-                            Dar baixa
-                          </button>
+                        <div className="font-semibold text-slate-900">{BRL(i.paid ? i.paid_amount : i.amount)}</div>
+                        {!i.paid && Number(i.paid_amount || 0) > 0 && (
+                          <div className="text-xs font-normal text-blue-600">restam {BRL(Number(i.amount) - Number(i.paid_amount || 0))}</div>
                         )}
+                      </td>
+                      <td className="td text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {!i.paid && (
+                            boletos[i.id] ? (
+                              <button
+                                onClick={() => setViewingBoleto(boletos[i.id])}
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg text-sky-600 hover:bg-sky-50 transition inline-flex items-center gap-1"
+                              >
+                                <Barcode size={13} />
+                                {boletos[i.id].status === 'Simulado' ? 'Boleto (simulado)' : 'Ver boleto'}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => emitirBoleto(i.id)}
+                                disabled={emittingId === i.id}
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg text-sky-600 hover:bg-sky-50 transition inline-flex items-center gap-1"
+                              >
+                                {emittingId === i.id ? <Loader2 size={13} className="animate-spin" /> : <Barcode size={13} />}
+                                Emitir boleto
+                              </button>
+                            )
+                          )}
+                          {i.paid ? (
+                            <button
+                              onClick={() => estornar(i)}
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition inline-flex items-center gap-1"
+                            >
+                              <Undo2 size={13} /> Estornar
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => openBaixa(i)}
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition"
+                            >
+                              {Number(i.paid_amount || 0) > 0 ? 'Completar pagamento' : 'Dar baixa'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -229,12 +290,24 @@ export default function Financial() {
                 <span className="text-slate-500">Valor total</span>
                 <span className="font-medium text-slate-900">{BRL(baixa.amount)}</span>
               </div>
+              {Number(baixa.paid_amount || 0) > 0 && (
+                <>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-slate-500">Já pago</span>
+                    <span className="font-medium text-emerald-600">{BRL(baixa.paid_amount)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-slate-500">Saldo restante</span>
+                    <span className="font-semibold text-slate-900">{BRL(Number(baixa.amount) - Number(baixa.paid_amount || 0))}</span>
+                  </div>
+                </>
+              )}
             </div>
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <Field label="Data do pagamento">
               <input type="date" className="input" value={baixaDate} onChange={(e) => setBaixaDate(e.target.value)} />
             </Field>
-            <Field label="Valor pago (R$)" hint="pode ser parcial">
+            <Field label="Valor pago agora (R$)" hint="pode ser parcial — o saldo continua em aberto até completar">
               <input type="number" step="0.01" className="input" value={baixaAmount} onChange={(e) => setBaixaAmount(Number(e.target.value))} />
             </Field>
             <div className="flex justify-end gap-2 pt-2">
@@ -244,6 +317,68 @@ export default function Financial() {
           </div>
         </Modal>
       )}
+
+      {viewingBoleto && <BoletoModal boleto={viewingBoleto} onClose={() => setViewingBoleto(null)} />}
     </div>
+  );
+}
+
+function BoletoModal({ boleto, onClose }: { boleto: Boleto; onClose: () => void }) {
+  const [copied, setCopied] = useState<'linha' | 'pix' | null>(null);
+
+  const copy = (text: string, which: 'linha' | 'pix') => {
+    navigator.clipboard.writeText(text);
+    setCopied(which);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  return (
+    <Modal title="Boleto" onClose={onClose}>
+      <div className="space-y-4">
+        {boleto.status === 'Simulado' && (
+          <div className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
+            ⚠️ Este é um boleto <strong>simulado</strong> — as credenciais do Banco Inter ainda não foram configuradas em Configurações. Nenhuma cobrança real foi gerada; os números abaixo não são válidos para pagamento.
+          </div>
+        )}
+        {boleto.status === 'Erro' && (
+          <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">
+            Falha ao emitir: {boleto.erro_mensagem}
+          </div>
+        )}
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-500">Valor</span>
+          <span className="font-semibold text-slate-900">{BRL(boleto.valor)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-500">Vencimento</span>
+          <span className="font-semibold text-slate-900">{formatDate(boleto.vencimento)}</span>
+        </div>
+        {boleto.linha_digitavel && (
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Linha digitável</label>
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3 mt-1">
+              <code className="flex-1 text-xs font-mono text-slate-800 select-all break-all">{boleto.linha_digitavel}</code>
+              <button className="icon-btn shrink-0" onClick={() => copy(boleto.linha_digitavel!, 'linha')}>
+                {copied === 'linha' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+        )}
+        {boleto.pix_copia_cola && (
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Pix copia e cola</label>
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3 mt-1">
+              <code className="flex-1 text-xs font-mono text-slate-800 select-all break-all">{boleto.pix_copia_cola}</code>
+              <button className="icon-btn shrink-0" onClick={() => copy(boleto.pix_copia_cola!, 'pix')}>
+                {copied === 'pix' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end">
+          <button className="btn-primary" onClick={onClose}>Fechar</button>
+        </div>
+      </div>
+    </Modal>
   );
 }

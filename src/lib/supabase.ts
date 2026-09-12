@@ -168,6 +168,23 @@ export type Sale = {
   sale_files?: SaleFile[];
 };
 
+export type Boleto = {
+  id: string;
+  installment_id: string;
+  customer_id: string | null;
+  valor: number;
+  vencimento: string;
+  status: string;
+  seu_numero: string | null;
+  nosso_numero: string | null;
+  linha_digitavel: string | null;
+  codigo_barras: string | null;
+  pix_copia_cola: string | null;
+  codigo_solicitacao: string | null;
+  erro_mensagem: string | null;
+  created_at: string;
+};
+
 export type Installment = {
   id: string;
   reference_id: string;

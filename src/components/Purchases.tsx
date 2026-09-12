@@ -50,6 +50,23 @@ export default function Purchases() {
   const [open, setOpen] = useSessionState('purchase:open', false);
   const [saving, setSaving] = useState(false);
   const [confirmSync, setConfirmSync] = useState(false);
+  const [paidCount, setPaidCount] = useState(0);
+
+  const countPaidInstallments = async (purchaseId: string) => {
+    try {
+      const { count, error: e } = await supabase
+        .from('installments')
+        .select('id', { count: 'exact', head: true })
+        .eq('reference_type', 'purchase')
+        .eq('reference_id', purchaseId)
+        .eq('paid', true);
+      if (e) { console.error('countPaidInstallments falhou:', e); return 0; }
+      return count ?? 0;
+    } catch (e) {
+      console.error('countPaidInstallments falhou:', e);
+      return 0;
+    }
+  };
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -219,11 +236,20 @@ export default function Purchases() {
   const grandTotal = subtotalBRL + importTax + iofAmountBRL;
   const extraCostsBRL = toBRL(foreignExtras) + importTax + iofAmountBRL;
 
+  // Extracted so it can run BEFORE the "Atualizar financeiro?" dialog
+  // opens — see the identical fix/explanation in Sales.tsx.
+  const validateForm = (): string | null => {
+    const validRows = rows.filter((r) => r.part_id);
+    if (validRows.length === 0) return 'Adicione ao menos uma peça à compra.';
+    if (form.currency === 'USD' && Number(form.exchange_rate) === 0) return 'Informe a taxa de câmbio.';
+    return null;
+  };
+
   const save = async (syncFinancial: boolean = true) => {
     setError('');
+    const validationError = validateForm();
+    if (validationError) { setError(validationError); return; }
     const validRows = rows.filter((r) => r.part_id);
-    if (validRows.length === 0) { setError('Adicione ao menos uma peça à compra.'); return; }
-    if (form.currency === 'USD' && Number(form.exchange_rate) === 0) { setError('Informe a taxa de câmbio.'); return; }
     setConfirmSync(false);
     setSaving(true);
 
@@ -351,6 +377,7 @@ export default function Purchases() {
 
       closeForm();
     } catch (err: any) {
+      console.error('Falha ao salvar a compra:', err);
       setError(err?.message ?? 'Falha ao salvar a compra.');
       return;
     } finally {
@@ -436,7 +463,7 @@ export default function Purchases() {
                       <td className="td">
                         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                           <button className="icon-btn" onClick={() => openEdit(p)}><Pencil size={15} /></button>
-                          <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(p.id)}><Trash2 size={15} /></button>
+                          <button className="icon-btn hover:text-red-600" onClick={async () => { setPaidCount(await countPaidInstallments(p.id)); setDeleteId(p.id); }}><Trash2 size={15} /></button>
                         </div>
                       </td>
                     </tr>
@@ -759,7 +786,19 @@ export default function Purchases() {
 
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={closeForm}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={() => (editing ? setConfirmSync(true) : save(true))}>{saving ? 'Salvando...' : 'Salvar'}</button>
+              <button
+                className="btn-primary"
+                disabled={saving}
+                onClick={async () => {
+                  const validationError = validateForm();
+                  if (validationError) { setError(validationError); return; }
+                  setError('');
+                  if (editing) { setPaidCount(await countPaidInstallments(editing.id)); setConfirmSync(true); }
+                  else { save(true); }
+                }}
+              >
+                {saving ? 'Salvando...' : 'Salvar'}
+              </button>
             </div>
           </div>
         </Modal>
@@ -768,6 +807,7 @@ export default function Purchases() {
       {confirmSync && (
         <Modal title="Atualizar financeiro?" onClose={() => setConfirmSync(false)}>
           <ConfirmFinancialSync
+            paidCount={paidCount}
             onSync={() => save(true)}
             onSkip={() => save(false)}
             onCancel={() => setConfirmSync(false)}
@@ -777,7 +817,7 @@ export default function Purchases() {
 
       {deleteId && (
         <Modal title="Excluir compra" onClose={() => setDeleteId(null)}>
-          <ConfirmDelete message="Excluir esta compra?" onConfirm={remove} onCancel={() => setDeleteId(null)} />
+          <ConfirmDelete message="Excluir esta compra?" paidCount={paidCount} onConfirm={remove} onCancel={() => setDeleteId(null)} />
         </Modal>
       )}
     </div>

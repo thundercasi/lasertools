@@ -61,18 +61,27 @@ export default function Payables() {
   const openBaixa = (i: Installment) => {
     setBaixa(i);
     setBaixaDate(today);
-    setBaixaAmount(Number(i.amount));
+    const remaining = Number(i.amount) - Number(i.paid_amount || 0);
+    setBaixaAmount(Math.max(remaining, 0));
     setError('');
   };
 
   const confirmBaixa = async () => {
     if (!baixa) return;
     if (baixaAmount <= 0) { setError('Informe um valor maior que zero.'); return; }
+    const alreadyPaid = Number(baixa.paid_amount || 0);
+    const remaining = Number(baixa.amount) - alreadyPaid;
+    if (baixaAmount > remaining + 0.01) {
+      setError(`O valor não pode ser maior que o saldo restante (${BRL(remaining)}).`);
+      return;
+    }
+    const newPaidAmount = alreadyPaid + baixaAmount;
+    const isFullyPaid = newPaidAmount >= Number(baixa.amount) - 0.01;
     setBaixaSaving(true);
     const { error } = await supabase.from('installments').update({
-      paid: true,
+      paid: isFullyPaid,
       paid_date: baixaDate,
-      paid_amount: baixaAmount,
+      paid_amount: newPaidAmount,
     }).eq('id', baixa.id);
     setBaixaSaving(false);
     if (error) { setError(error.message); return; }
@@ -198,9 +207,14 @@ export default function Payables() {
                       </td>
                       <td className="td text-slate-600">#{i.installment_number}</td>
                       <td className="td">
-                        {i.paid ? <Badge tone="green">Pago</Badge> : overdue ? <Badge tone="red">Atrasado</Badge> : dueToday ? <Badge tone="amber">Vence hoje</Badge> : <Badge tone="blue">Pendente</Badge>}
+                        {i.paid ? <Badge tone="green">Pago</Badge> : Number(i.paid_amount || 0) > 0 ? <Badge tone="blue">Parcial</Badge> : overdue ? <Badge tone="red">Atrasado</Badge> : dueToday ? <Badge tone="amber">Vence hoje</Badge> : <Badge tone="blue">Pendente</Badge>}
                       </td>
-                      <td className="td text-right font-semibold text-slate-900">{BRL(i.paid ? i.paid_amount : i.amount)}</td>
+                      <td className="td text-right">
+                        <div className="font-semibold text-slate-900">{BRL(i.paid ? i.paid_amount : i.amount)}</div>
+                        {!i.paid && Number(i.paid_amount || 0) > 0 && (
+                          <div className="text-xs font-normal text-blue-600">restam {BRL(Number(i.amount) - Number(i.paid_amount || 0))}</div>
+                        )}
+                      </td>
                       <td className="td text-right">
                         {i.paid ? (
                           <button
@@ -214,7 +228,7 @@ export default function Payables() {
                             onClick={() => openBaixa(i)}
                             className="text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition"
                           >
-                            Dar baixa
+                            {Number(i.paid_amount || 0) > 0 ? 'Completar pagamento' : 'Dar baixa'}
                           </button>
                         )}
                       </td>
@@ -251,12 +265,24 @@ export default function Payables() {
                 <span className="text-slate-500">Valor total</span>
                 <span className="font-medium text-slate-900">{BRL(baixa.amount)}</span>
               </div>
+              {Number(baixa.paid_amount || 0) > 0 && (
+                <>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-slate-500">Já pago</span>
+                    <span className="font-medium text-emerald-600">{BRL(baixa.paid_amount)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-slate-500">Saldo restante</span>
+                    <span className="font-semibold text-slate-900">{BRL(Number(baixa.amount) - Number(baixa.paid_amount || 0))}</span>
+                  </div>
+                </>
+              )}
             </div>
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <Field label="Data do pagamento">
               <input type="date" className="input" value={baixaDate} onChange={(e) => setBaixaDate(e.target.value)} />
             </Field>
-            <Field label="Valor pago (R$)" hint="pode ser parcial">
+            <Field label="Valor pago agora (R$)" hint="pode ser parcial — o saldo continua em aberto até completar">
               <input type="number" step="0.01" className="input" value={baixaAmount} onChange={(e) => setBaixaAmount(Number(e.target.value))} />
             </Field>
             <div className="flex justify-end gap-2 pt-2">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, RefreshCw, ClipboardList } from 'lucide-react';
+import { Settings as SettingsIcon, RefreshCw, ClipboardList, Landmark } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
@@ -67,6 +67,91 @@ export default function Settings() {
       </div>
 
       <OrderDefaults />
+      <InterCredentials />
+    </div>
+  );
+}
+
+function InterCredentials() {
+  const [status, setStatus] = useState<{ environment: string; configured: boolean; updated_at: string | null } | null>(null);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [certPem, setCertPem] = useState('');
+  const [keyPem, setKeyPem] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const loadStatus = async () => {
+    const { data } = await supabase.rpc('get_inter_status');
+    setStatus(Array.isArray(data) ? data[0] : data);
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const readFile = (file: File, setter: (v: string) => void) => {
+    const reader = new FileReader();
+    reader.onload = () => setter(String(reader.result ?? ''));
+    reader.readAsText(file);
+  };
+
+  const save = async () => {
+    setError('');
+    setSaving(true);
+    const { error: e } = await supabase.rpc('admin_save_inter_credentials', {
+      p_client_id: clientId.trim(), p_client_secret: clientSecret.trim(),
+      p_cert_pem: certPem.trim(), p_key_pem: keyPem.trim(),
+    });
+    setSaving(false);
+    if (e) { setError(e.message); return; }
+    setClientId(''); setClientSecret(''); setCertPem(''); setKeyPem('');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+    loadStatus();
+  };
+
+  return (
+    <div className="card p-6 max-w-xl mt-6">
+      <div className="flex items-center gap-2 mb-1">
+        <Landmark size={16} className="text-slate-400" />
+        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Emissão de Boleto (Banco Inter)</span>
+      </div>
+      <p className="text-xs text-slate-400 mb-4">
+        Cole aqui o Client ID, Client Secret e o conteúdo dos arquivos de certificado (.crt) e chave (.key) gerados no portal de desenvolvedores do Inter.
+        Esses dados ficam guardados de forma protegida — o app nunca os exibe de volta depois de salvos.
+      </p>
+
+      {status && (
+        <div className={`text-sm rounded-lg p-3 mb-4 ${status.environment === 'producao' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+          {status.environment === 'producao'
+            ? '✅ Configurado — emitindo boletos reais pelo Banco Inter.'
+            : '⚠️ Modo simulado — nenhuma credencial real configurada ainda. Os boletos emitidos no sistema são fictícios até você preencher os campos abaixo.'}
+        </div>
+      )}
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">{error}</div>}
+
+      <div className="space-y-4">
+        <Field label="Client ID">
+          <input className="input" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+        </Field>
+        <Field label="Client Secret">
+          <input type="password" className="input" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
+        </Field>
+        <Field label="Certificado (.crt)" hint="selecione o arquivo — o conteúdo é lido automaticamente">
+          <input type="file" accept=".crt,.pem" className="input" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f, setCertPem); }} />
+          {certPem && <p className="text-xs text-emerald-600 mt-1">Arquivo carregado ({certPem.length} caracteres).</p>}
+        </Field>
+        <Field label="Chave (.key)" hint="selecione o arquivo — o conteúdo é lido automaticamente">
+          <input type="file" accept=".key,.pem" className="input" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f, setKeyPem); }} />
+          {keyPem && <p className="text-xs text-emerald-600 mt-1">Arquivo carregado ({keyPem.length} caracteres).</p>}
+        </Field>
+      </div>
+
+      <div className="flex justify-end mt-4">
+        <button className="btn-primary" disabled={saving} onClick={save}>
+          {saving ? 'Salvando...' : saved ? 'Salvo!' : 'Salvar credenciais'}
+        </button>
+      </div>
     </div>
   );
 }

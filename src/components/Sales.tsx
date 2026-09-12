@@ -34,6 +34,23 @@ export default function Sales() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [confirmSync, setConfirmSync] = useState(false);
+  const [paidCount, setPaidCount] = useState(0);
+
+  const countPaidInstallments = async (saleId: string) => {
+    try {
+      const { count, error: e } = await supabase
+        .from('installments')
+        .select('id', { count: 'exact', head: true })
+        .eq('reference_type', 'sale')
+        .eq('reference_id', saleId)
+        .eq('paid', true);
+      if (e) { console.error('countPaidInstallments falhou:', e); return 0; }
+      return count ?? 0;
+    } catch (e) {
+      console.error('countPaidInstallments falhou:', e);
+      return 0;
+    }
+  };
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -200,20 +217,32 @@ export default function Sales() {
     setFiles((prev) => prev.filter((x) => x.id !== f.id));
   };
 
-  const save = async (syncFinancial: boolean = true) => {
-    setError('');
+  // Extracted so it can run BEFORE the "Atualizar financeiro?" dialog
+  // opens. Previously validation only ran inside save(), which only
+  // fires after the user already answered that dialog — a validation
+  // error there had nowhere visible to land, since the confirm dialog
+  // had already closed by then (this is what looked like the app
+  // "hanging" with no visible error).
+  const validateForm = (): string | null => {
     const validRows = rows.filter((r) => r.part_id);
-    if (validRows.length === 0) { setError('Adicione ao menos uma peça à venda.'); return; }
-    if (!form.customer_id) { setError('Selecione um cliente.'); return; }
+    if (validRows.length === 0) return 'Adicione ao menos uma peça à venda.';
+    if (!form.customer_id) return 'Selecione um cliente.';
     const missingUnit = validRows.find((r) => {
       const p = allParts.find((x) => x.id === r.part_id);
       return p?.tracked_by_unit && !r.part_unit_id;
     });
     if (missingUnit) {
       const p = allParts.find((x) => x.id === missingUnit.part_id);
-      setError(`Selecione qual unidade de "${p?.name}" está sendo vendida.`);
-      return;
+      return `Selecione qual unidade de "${p?.name}" está sendo vendida.`;
     }
+    return null;
+  };
+
+  const save = async (syncFinancial: boolean = true) => {
+    setError('');
+    const validationError = validateForm();
+    if (validationError) { setError(validationError); return; }
+    const validRows = rows.filter((r) => r.part_id);
     setConfirmSync(false);
     setSaving(true);
     try {
@@ -285,6 +314,7 @@ export default function Sales() {
       }
       setOpen(false);
     } catch (err: any) {
+      console.error('Falha ao salvar a venda:', err);
       setError(err?.message ?? 'Falha ao salvar a venda.');
       return;
     } finally {
@@ -382,7 +412,7 @@ export default function Sales() {
                         <td className="td">
                           <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                             <button className="icon-btn" onClick={() => openEdit(s)}><Pencil size={15} /></button>
-                            <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(s.id)}><Trash2 size={15} /></button>
+                            <button className="icon-btn hover:text-red-600" onClick={async () => { setPaidCount(await countPaidInstallments(s.id)); setDeleteId(s.id); }}><Trash2 size={15} /></button>
                           </div>
                         </td>
                       </tr>
@@ -680,7 +710,19 @@ export default function Sales() {
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={() => (editing ? setConfirmSync(true) : save(true))}>{saving ? 'Salvando...' : 'Salvar'}</button>
+              <button
+                className="btn-primary"
+                disabled={saving}
+                onClick={async () => {
+                  const validationError = validateForm();
+                  if (validationError) { setError(validationError); return; }
+                  setError('');
+                  if (editing) { setPaidCount(await countPaidInstallments(editing.id)); setConfirmSync(true); }
+                  else { save(true); }
+                }}
+              >
+                {saving ? 'Salvando...' : 'Salvar'}
+              </button>
             </div>
           </div>
         </Modal>
@@ -689,6 +731,7 @@ export default function Sales() {
       {confirmSync && (
         <Modal title="Atualizar financeiro?" onClose={() => setConfirmSync(false)}>
           <ConfirmFinancialSync
+            paidCount={paidCount}
             onSync={() => save(true)}
             onSkip={() => save(false)}
             onCancel={() => setConfirmSync(false)}
@@ -698,7 +741,7 @@ export default function Sales() {
 
       {deleteId && (
         <Modal title="Excluir venda" onClose={() => setDeleteId(null)}>
-          <ConfirmDelete message="Excluir esta venda?" onConfirm={remove} onCancel={() => setDeleteId(null)} />
+          <ConfirmDelete message="Excluir esta venda?" paidCount={paidCount} onConfirm={remove} onCancel={() => setDeleteId(null)} />
         </Modal>
       )}
     </div>
