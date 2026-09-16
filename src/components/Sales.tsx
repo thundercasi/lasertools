@@ -19,7 +19,7 @@ type SaleRow = { part_id: string; condition: string; part_unit_id: string; quant
 
 const inputCls = 'input';
 
-export default function Sales() {
+export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } = {}) {
   const [items, setItems] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [stockParts, setStockParts] = useState<Part[]>([]);
@@ -474,9 +474,17 @@ export default function Sales() {
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Cliente">
-                <select className={inputCls} value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}>
+                <select
+                  className={inputCls}
+                  value={form.customer_id}
+                  onChange={(e) => {
+                    if (e.target.value === '__new__') { onNewCustomer?.(); return; }
+                    setForm({ ...form, customer_id: e.target.value });
+                  }}
+                >
                   <option value="">— Selecione —</option>
                   {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {onNewCustomer && <option value="__new__">+ Novo cliente...</option>}
                 </select>
               </Field>
               <Field label="Data"><input type="date" className={inputCls} value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} /></Field>

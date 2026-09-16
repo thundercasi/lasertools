@@ -97,6 +97,12 @@ export default function App() {
   const [view, setView] = useSessionState<ViewId>('app:view', 'dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [autoOpenNewCustomer, setAutoOpenNewCustomer] = useState(false);
+
+  const goToNewCustomer = () => {
+    setAutoOpenNewCustomer(true);
+    setView('customers');
+  };
 
   if (loading) {
     return (
@@ -127,8 +133,8 @@ export default function App() {
       case 'suppliers': return <Suppliers />;
       case 'orders': return <Orders />;
       case 'purchases': return <Purchases />;
-      case 'sales': return <Sales />;
-      case 'customers': return <Customers />;
+      case 'sales': return <Sales onNewCustomer={goToNewCustomer} />;
+      case 'customers': return <Customers autoOpenNew={autoOpenNewCustomer} onAutoOpenNewConsumed={() => setAutoOpenNewCustomer(false)} />;
       case 'financial': return <Financial />;
       case 'payables': return <Payables />;
       case 'competition': return <Competition />;

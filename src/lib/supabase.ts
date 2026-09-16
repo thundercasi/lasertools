@@ -168,6 +168,49 @@ export type Sale = {
   sale_files?: SaleFile[];
 };
 
+export type OrderItemRow = {
+  id: string;
+  order_id: string;
+  position: number;
+  description: string;
+  qty: number;
+  is_import: boolean;
+  cost_usd: number;
+  cost_brl: number;
+};
+
+export type Order = {
+  id: string;
+  code: string;
+  status: string;
+  proposal_date: string;
+  seller: string | null;
+  client_name: string | null;
+  client_doc: string | null;
+  address: string | null;
+  city_uf: string | null;
+  cep: string | null;
+  exchange_rate: number;
+  freight_usd: number;
+  iof_percent: number;
+  import_tax_percent: number;
+  invoice_tax_percent: number;
+  seller_commission_percent: number;
+  card_fee_percent: number;
+  issuer_commission_percent: number;
+  profit_margin_percent: number;
+  delivery_time: string | null;
+  payment_terms: string | null;
+  warranty: string | null;
+  proposal_validity: string | null;
+  final_discount: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  order_items?: OrderItemRow[];
+};
+
 export type Boleto = {
   id: string;
   installment_id: string;

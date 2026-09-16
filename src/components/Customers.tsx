@@ -10,7 +10,12 @@ const empty = {
 
 const inputCls = 'input';
 
-export default function Customers() {
+export default function Customers({
+  autoOpenNew, onAutoOpenNewConsumed,
+}: {
+  autoOpenNew?: boolean;
+  onAutoOpenNewConsumed?: () => void;
+} = {}) {
   const [items, setItems] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -29,6 +34,16 @@ export default function Customers() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Arrived here via "+ Novo cliente..." from another screen (e.g. Vendas)
+  // — open the form right away instead of making the user click again.
+  useEffect(() => {
+    if (autoOpenNew) {
+      openNew();
+      onAutoOpenNewConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenNew]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

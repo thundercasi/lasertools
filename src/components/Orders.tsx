@@ -3,7 +3,6 @@ import {
   ClipboardList, Plus, Trash2, Calculator, Printer, Eraser,
 } from 'lucide-react';
 import { supabase, BRL } from '../lib/supabase';
-import { useLocalState } from '../lib/useLocalState';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
 
@@ -57,6 +56,12 @@ const emptyTerms = {
 
 const num = (v: number) => (isFinite(v) ? v : 0);
 
+// This screen has exactly ONE shared draft, stored as a single row (not
+// a list — every user reads and writes the same "current pedido"). This
+// fixed code identifies that row; a real sequence isn't needed since
+// there's only ever one.
+const SHARED_CODE = 'PEDIDO-ATUAL';
+
 // Renders a number input that shows blank instead of a leading "0" while
 // the field is empty/zero, so typing doesn't produce "05", "010" etc.
 function NumField({
@@ -91,51 +96,66 @@ function PctField({ label, value, onChange, disabled }: { label: string; value: 
 
 export default function Orders() {
   const usd = useUsdRate();
-  const [header, setHeader] = useLocalState('orders:header', emptyHeader);
-  const [rates, setRates] = useLocalState('orders:rates', emptyRates);
-  const [items, setItems] = useLocalState<OrderItem[]>('orders:items', [newItem()]);
-  const [terms, setTerms] = useLocalState('orders:terms', emptyTerms);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [header, setHeader] = useState(emptyHeader);
+  const [rates, setRates] = useState(emptyRates);
+  const [items, setItems] = useState<OrderItem[]>([newItem()]);
+  const [terms, setTerms] = useState(emptyTerms);
   const [generated, setGenerated] = useState(false);
-
-  // The date should always default to "today" on a fresh visit, even though
-  // the rest of the form remembers the last values filled in.
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    setHeader((h) => (h.proposal_date === today ? h : { ...h, proposal_date: today }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Loads the saved default rates (Configurações) the first time this
-  // screen is used. Never overwrites values already filled in locally —
-  // only fields still at 0 are seeded from the defaults.
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [defaultsLoaded, setDefaultsLoaded] = useState(false);
+
+  // Loads the single shared draft — whatever the last person saved is
+  // what everyone sees when they open this screen. If it doesn't exist
+  // yet (first time anyone uses this screen), falls through to defaults.
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('app_settings').select('order_defaults').eq('id', 'default').maybeSingle();
-      const d = (data as any)?.order_defaults as Record<string, number> | undefined;
-      if (d && Object.keys(d).length > 0) {
-        setRates((prev) => {
-          const next = { ...prev };
-          for (const [k, v] of Object.entries(d)) {
-            if (Number((next as any)[k]) === 0) (next as any)[k] = Number(v);
-          }
-          return next;
+      const { data } = await supabase.from('orders').select('*, order_items(*)').eq('code', SHARED_CODE).maybeSingle();
+
+      if (data) {
+        setOrderId(data.id);
+        setHeader({
+          proposal_date: data.proposal_date, seller: data.seller ?? '', client_name: data.client_name ?? '',
+          client_doc: data.client_doc ?? '', address: data.address ?? '', city_uf: data.city_uf ?? '', cep: data.cep ?? '',
         });
+        setRates({
+          exchange_rate: Number(data.exchange_rate) || 0, freight_usd: Number(data.freight_usd) || 0,
+          iof_percent: Number(data.iof_percent) || 0, import_tax_percent: Number(data.import_tax_percent) || 0,
+          invoice_tax_percent: Number(data.invoice_tax_percent) || 0, seller_commission_percent: Number(data.seller_commission_percent) || 0,
+          card_fee_percent: Number(data.card_fee_percent) || 0, issuer_commission_percent: Number(data.issuer_commission_percent) || 0,
+          profit_margin_percent: Number(data.profit_margin_percent) || 0,
+        });
+        const loadedItems = ((data.order_items ?? []) as any[]).sort((a, b) => a.position - b.position).map((it) => ({
+          id: it.id, description: it.description, qty: Number(it.qty), is_import: it.is_import,
+          cost_usd: Number(it.cost_usd), cost_brl: Number(it.cost_brl), cost_brl_auto: false,
+        }));
+        setItems(loadedItems.length > 0 ? loadedItems : [newItem()]);
+        setTerms({
+          delivery_time: data.delivery_time ?? '', payment_terms: data.payment_terms ?? '', warranty: data.warranty ?? '',
+          proposal_validity: data.proposal_validity ?? '', notes: data.notes ?? '', final_discount: data.final_discount ?? '',
+        });
+        setSavedAt(data.updated_at);
+      } else {
+        // Nobody has saved a pedido yet — start from blank rates.
+        setRates(emptyRates);
       }
       setDefaultsLoaded(true);
+      setLoading(false);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Falls back to the day's USD quote (+ spread) if no default exchange
-  // rate was saved. Runs only after the defaults have been applied, so
-  // the two don't race each other.
+  // Only while the exchange rate field is still empty (no saved draft has
+  // ever set one) does this fall back to the day's USD quote (+ spread) —
+  // once a value exists (typed by a user, or saved before), it's never
+  // touched automatically again.
   useEffect(() => {
     if (!defaultsLoaded) return;
     if (Number(rates.exchange_rate) === 0 && usd.effectiveRate) {
       setRates((r) => (Number(r.exchange_rate) === 0 ? { ...r, exchange_rate: usd.effectiveRate as number } : r));
     }
-  }, [defaultsLoaded, usd.effectiveRate, rates.exchange_rate, setRates]);
+  }, [defaultsLoaded, usd.effectiveRate, rates.exchange_rate]);
 
   const addItem = () => {
     if (items.length >= 10) return;
@@ -145,61 +165,99 @@ export default function Orders() {
   const updateItem = (id: string, patch: Partial<OrderItem>) =>
     setItems((r) => r.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
-  // Toggling "Importação" on: auto-fills R$ from the USD cost already
-  // typed (if any), using the day's exchange rate — only while R$ is
-  // still auto-filled (never overwrites a value the user typed
-  // themselves). Toggling off: clears USD (não se aplica), keeps R$ as-is
-  // so the user can still adjust the domestic cost directly.
-  //
-  // rates.exchange_rate starts at 0 and is filled in asynchronously (from
-  // saved defaults, then the daily quote). If the user types before that
-  // finishes, fall back to usd.effectiveRate directly so the auto-fill
-  // never silently no-ops.
   const setItemImport = (id: string, checked: boolean) => {
     const rate = Number(rates.exchange_rate) || Number(usd.effectiveRate) || 0;
     setItems((prev) => prev.map((i) => {
       if (i.id !== id) return i;
+      const autoFlag = i.cost_brl_auto ?? true;
       if (checked) {
-        if (i.cost_brl_auto && num(i.cost_usd) > 0 && rate) {
-          return { ...i, is_import: true, cost_brl: Number((i.cost_usd * rate).toFixed(2)) };
+        if (autoFlag && num(i.cost_usd) > 0 && rate) {
+          return { ...i, is_import: true, cost_brl: Number((i.cost_usd * rate).toFixed(2)), cost_brl_auto: true };
         }
-        return { ...i, is_import: true };
+        return { ...i, is_import: true, cost_brl_auto: autoFlag };
       }
-      return { ...i, is_import: false, cost_usd: 0 };
+      return { ...i, is_import: false, cost_usd: 0, cost_brl_auto: autoFlag };
     }));
   };
 
-  // Typing a USD cost means this item is an import — activate it
-  // automatically instead of requiring the checkbox first. Re-syncs R$
-  // on EVERY keystroke (not just while R$ reads as 0) as long as R$ is
-  // still an auto-filled value — the moment the user edits R$ directly,
-  // cost_brl_auto flips off and USD stops touching it.
   const updateItemCostUsd = (id: string, v: number) => {
     const rate = Number(rates.exchange_rate) || Number(usd.effectiveRate) || 0;
     setItems((prev) => prev.map((i) => {
       if (i.id !== id) return i;
       const nowImport = i.is_import || v > 0;
-      if (i.cost_brl_auto && v > 0 && rate) {
-        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: Number((v * rate).toFixed(2)) };
+      const autoFlag = i.cost_brl_auto ?? true;
+      if (autoFlag && v > 0 && rate) {
+        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: Number((v * rate).toFixed(2)), cost_brl_auto: true };
       }
-      if (i.cost_brl_auto && v === 0) {
-        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: 0 };
+      if (autoFlag && v === 0) {
+        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: 0, cost_brl_auto: true };
       }
-      return { ...i, cost_usd: v, is_import: nowImport };
+      return { ...i, cost_usd: v, is_import: nowImport, cost_brl_auto: autoFlag };
     }));
   };
 
-  // The R$ field is edited directly by the user — from this point on it's
-  // a manual value, so USD entry must stop overwriting it.
   const updateItemCostBrl = (id: string, v: number) =>
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, cost_brl: v, cost_brl_auto: false } : i)));
 
+  // Persists the shared draft — every field, including the item table.
+  // Called explicitly (Salvar) and also by "Limpar tudo", so a clear
+  // is seen by everyone too, not just the person who clicked it.
+  const persist = async (h: typeof header, r: typeof rates, it: OrderItem[], t: typeof terms) => {
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const payload = {
+        code: SHARED_CODE, status: 'Rascunho',
+        proposal_date: h.proposal_date, seller: h.seller || null, client_name: h.client_name || null,
+        client_doc: h.client_doc || null, address: h.address || null, city_uf: h.city_uf || null, cep: h.cep || null,
+        exchange_rate: Number(r.exchange_rate) || 0, freight_usd: Number(r.freight_usd) || 0,
+        iof_percent: Number(r.iof_percent) || 0, import_tax_percent: Number(r.import_tax_percent) || 0,
+        invoice_tax_percent: Number(r.invoice_tax_percent) || 0, seller_commission_percent: Number(r.seller_commission_percent) || 0,
+        card_fee_percent: Number(r.card_fee_percent) || 0, issuer_commission_percent: Number(r.issuer_commission_percent) || 0,
+        profit_margin_percent: Number(r.profit_margin_percent) || 0,
+        delivery_time: t.delivery_time || null, payment_terms: t.payment_terms || null, warranty: t.warranty || null,
+        proposal_validity: t.proposal_validity || null, final_discount: t.final_discount || null, notes: t.notes || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      let id = orderId;
+      if (id) {
+        await supabase.from('orders').update(payload).eq('id', id);
+      } else {
+        const { data, error: e } = await supabase.from('orders').insert({ ...payload, created_by: user?.id ?? null }).select('id').single();
+        if (e) throw e;
+        id = data.id;
+        setOrderId(id);
+      }
+
+      await supabase.from('order_items').delete().eq('order_id', id);
+      const validItems = it.filter((i) => i.description.trim());
+      if (validItems.length > 0) {
+        const itemRows = validItems.map((i, idx) => ({
+          order_id: id, position: idx, description: i.description, qty: Number(i.qty) || 0,
+          is_import: i.is_import, cost_usd: Number(i.cost_usd) || 0, cost_brl: Number(i.cost_brl) || 0,
+        }));
+        await supabase.from('order_items').insert(itemRows);
+      }
+      setSavedAt(new Date().toISOString());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const save = () => persist(header, rates, items, terms);
+
   const clearAll = () => {
-    setHeader(emptyHeader);
-    setRates(emptyRates);
-    setItems([newItem()]);
-    setTerms(emptyTerms);
+    const h = emptyHeader;
+    const r = emptyRates;
+    const it = [newItem()];
+    const t = emptyTerms;
+    setHeader(h);
+    setRates(r);
+    setItems(it);
+    setTerms(t);
     setGenerated(false);
+    persist(h, r, it, t);
   };
 
   // Deductions applied on top of the sale price (taxes, commissions, card fee) — not including profit margin itself.
@@ -242,19 +300,29 @@ export default function Orders() {
 
   const inputCls = 'input';
 
+  if (loading) {
+    return <div className="p-8 text-center text-slate-400 text-sm">Carregando pedido...</div>;
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Pedidos"
-        subtitle="Simulação de proposta comercial — frete (USD) e impostos (R$) rateados proporcionalmente por item"
+        subtitle="Simulação de proposta comercial — compartilhada com toda a equipe. Frete (USD) e impostos (R$) rateados proporcionalmente por item"
         action={
           <div className="flex gap-2 print:hidden">
             <button className="btn-secondary" onClick={clearAll}><Eraser size={16} /> Limpar tudo</button>
             <button className="btn-secondary" onClick={() => window.print()}><Printer size={16} /> Imprimir / Salvar PDF</button>
-            <button className="btn-primary" onClick={() => setGenerated(true)}><Calculator size={16} /> Calcular &amp; Gerar Pedido</button>
+            <button className="btn-secondary" onClick={() => setGenerated(true)}><Calculator size={16} /> Calcular &amp; Gerar Pedido</button>
+            <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         }
       />
+      {savedAt && (
+        <p className="text-xs text-slate-400 -mt-4 print:hidden">
+          Última atualização: {new Date(savedAt).toLocaleString('pt-BR')}
+        </p>
+      )}
 
       <div className="print:hidden space-y-6">
         {/* 1. Dados do pedido e cliente */}

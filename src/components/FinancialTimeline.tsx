@@ -111,7 +111,7 @@ export default function FinancialTimeline() {
       setLoading(true);
       const { data } = await supabase
         .from('installments')
-        .select('due_date, amount, reference_type')
+        .select('due_date, amount, reference_type, paid')
         .in('reference_type', ['sale', 'purchase', 'maintenance']);
       setItems((data as Installment[]) ?? []);
       setLoading(false);
@@ -128,6 +128,12 @@ export default function FinancialTimeline() {
     const todayKey = keyFn(today);
 
     const map = new Map<string, Bucket>();
+    // The summary cards (Total a Receber / Total a Pagar / Saldo
+    // Projetado) only count what's still OPEN — already-paid
+    // installments don't belong in "how much is still owed". The bars
+    // below keep showing the full historical amount per month
+    // regardless of paid status, since that's a volume-over-time view,
+    // not a "what's outstanding" figure.
     let totalReceivable = 0;
     let totalPayable = 0;
     for (const i of items) {
@@ -136,8 +142,13 @@ export default function FinancialTimeline() {
       const amt = Number(i.amount) || 0;
       if (!map.has(key)) map.set(key, { key, label: labelFn(key), receivable: 0, payable: 0, isToday: key === todayKey });
       const b = map.get(key)!;
-      if (i.reference_type === 'sale') { b.receivable += amt; totalReceivable += amt; }
-      else { b.payable += amt; totalPayable += amt; }
+      if (i.reference_type === 'sale') {
+        b.receivable += amt;
+        if (!i.paid) totalReceivable += amt;
+      } else {
+        b.payable += amt;
+        if (!i.paid) totalPayable += amt;
+      }
     }
     const buckets = Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
     return { buckets, totalReceivable, totalPayable };
@@ -170,11 +181,11 @@ export default function FinancialTimeline() {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
             <div className="bg-emerald-50 rounded-xl p-3">
-              <div className="text-[11px] font-semibold text-emerald-600 uppercase">Total a Receber</div>
+              <div className="text-[11px] font-semibold text-emerald-600 uppercase">Total a Receber (pendente)</div>
               <div className="text-base font-bold text-emerald-700 mt-0.5">{BRL(totalReceivable)}</div>
             </div>
             <div className="bg-red-50 rounded-xl p-3">
-              <div className="text-[11px] font-semibold text-red-500 uppercase">Total a Pagar</div>
+              <div className="text-[11px] font-semibold text-red-500 uppercase">Total a Pagar (pendente)</div>
               <div className="text-base font-bold text-red-600 mt-0.5">{BRL(totalPayable)}</div>
             </div>
             <div className="bg-slate-50 rounded-xl p-3 col-span-2 sm:col-span-2">
