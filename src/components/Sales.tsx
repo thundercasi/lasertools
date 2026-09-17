@@ -255,7 +255,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
         total_amount: total,
         installment_count: Number(form.installment_count),
         installment_interval_days: Number(form.installment_interval_days),
-        first_installment_date: form.installment_count > 1 ? (form.first_installment_date || null) : null,
+        first_installment_date: form.first_installment_date || null,
         nf_tax: Number(form.nf_tax),
         nf_fee: Number(form.nf_fee),
         salesperson_commission: Number(form.salesperson_commission),
@@ -487,7 +487,24 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                   {onNewCustomer && <option value="__new__">+ Novo cliente...</option>}
                 </select>
               </Field>
-              <Field label="Data"><input type="date" className={inputCls} value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} /></Field>
+              <Field label="Data">
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={form.sale_date}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      sale_date: newDate,
+                      // The first installment date keeps following the sale
+                      // date as a suggestion — but only while it hasn't been
+                      // manually changed to something different already.
+                      first_installment_date: f.first_installment_date === f.sale_date ? newDate : f.first_installment_date,
+                    }));
+                  }}
+                />
+              </Field>
               <Field label="Status">
                 <select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                   {SALE_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -639,7 +656,6 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                     type="date"
                     className={inputCls}
                     value={form.first_installment_date}
-                    disabled={form.installment_count <= 1}
                     onChange={(e) => setForm({ ...form, first_installment_date: e.target.value })}
                   />
                 </Field>

@@ -316,6 +316,7 @@ export type CompetitionPrice = {
   competitor: string;
   price: number;
   currency: string;
+  condition: string;
   observed_at: string;
   notes: string | null;
   created_at: string;

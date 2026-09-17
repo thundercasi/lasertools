@@ -15,7 +15,7 @@ const CONDITIONS = ['Novo', 'Usado'] as const;
 type CondPrices = Record<string, number>;
 
 const emptyPrice = {
-  competitor_id: '', competitor: '', price: 0, currency: 'BRL',
+  competitor_id: '', competitor: '', price: 0, currency: 'BRL', condition: 'Novo',
   observed_at: new Date().toISOString().slice(0, 10), notes: '',
 };
 
@@ -217,6 +217,7 @@ export default function Parts() {
           competitor: r.competitor,
           price: Number(r.price),
           currency: r.currency,
+          condition: r.condition ?? 'Novo',
           observed_at: r.observed_at,
           notes: r.notes || null,
         }));
@@ -270,6 +271,7 @@ export default function Parts() {
       competitor: pr.competitor ?? '',
       price: Number(pr.price) || 0,
       currency: pr.currency,
+      condition: pr.condition ?? 'Novo',
       observed_at: pr.observed_at,
       notes: pr.notes ?? '',
     });
@@ -304,6 +306,7 @@ export default function Parts() {
         competitor: compName,
         price: Number(priceForm.price),
         currency: priceForm.currency,
+        condition: priceForm.condition,
         observed_at: priceForm.observed_at,
         notes: priceForm.notes || null,
         created_at: new Date().toISOString(),
@@ -321,6 +324,7 @@ export default function Parts() {
       competitor: compName,
       price: Number(priceForm.price),
       currency: priceForm.currency,
+      condition: priceForm.condition,
       observed_at: priceForm.observed_at,
       notes: priceForm.notes || null,
     };
@@ -596,7 +600,12 @@ export default function Parts() {
                     return (
                       <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
+                          <div className="text-sm font-medium text-slate-900 truncate flex items-center gap-1.5">
+                            {pr.competitor_ref?.name ?? pr.competitor}
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pr.condition === 'Usado' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {pr.condition}
+                            </span>
+                          </div>
                           <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
                         </div>
                         <div className="text-right shrink-0">
@@ -673,12 +682,18 @@ export default function Parts() {
                 <input className={inputCls} value={priceForm.competitor} onChange={(e) => setPriceForm({ ...priceForm, competitor: e.target.value })} placeholder="Ex: Concorrente XYZ" autoFocus />
               </Field>
             )}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <Field label="Preço"><input type="number" step="0.01" className={inputCls} value={priceForm.price} onChange={(e) => setPriceForm({ ...priceForm, price: Number(e.target.value) })} /></Field>
               <Field label="Moeda">
                 <select className={inputCls} value={priceForm.currency} onChange={(e) => setPriceForm({ ...priceForm, currency: e.target.value })}>
                   <option value="BRL">BRL (R$)</option>
                   <option value="USD">USD ($)</option>
+                </select>
+              </Field>
+              <Field label="Condição">
+                <select className={inputCls} value={priceForm.condition} onChange={(e) => setPriceForm({ ...priceForm, condition: e.target.value })}>
+                  <option value="Novo">Novo</option>
+                  <option value="Usado">Usado</option>
                 </select>
               </Field>
               <Field label="Data"><input type="date" className={inputCls} value={priceForm.observed_at} onChange={(e) => setPriceForm({ ...priceForm, observed_at: e.target.value })} /></Field>
