@@ -592,30 +592,41 @@ export default function Parts() {
               {priceRows.length === 0 ? (
                 <p className="text-xs text-slate-400">Nenhum preço de concorrente cadastrado.</p>
               ) : (
-                <div className="space-y-2">
-                  {priceRows.map((pr) => {
-                    const rate = usd.baseRate ?? usd.effectiveRate;
-                    const usdValue = pr.currency === 'USD' ? Number(pr.price) : (rate ? Number(pr.price) / rate : null);
-                    const brlValue = pr.currency === 'BRL' ? Number(pr.price) : (rate ? Number(pr.price) * rate : null);
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {(['Novo', 'Usado'] as const).map((cond) => {
+                    const rows = priceRows.filter((pr) => (pr.condition ?? 'Novo') === cond);
                     return (
-                      <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-900 truncate flex items-center gap-1.5">
-                            {pr.competitor_ref?.name ?? pr.competitor}
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pr.condition === 'Usado' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                              {pr.condition}
-                            </span>
+                      <div key={cond}>
+                        <div className={`text-[11px] font-bold uppercase tracking-wide mb-2 ${cond === 'Usado' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {cond} {rows.length > 0 && <span className="text-slate-400 font-normal normal-case">({rows.length})</span>}
+                        </div>
+                        {rows.length === 0 ? (
+                          <p className="text-xs text-slate-300 italic">Nenhum preço {cond.toLowerCase()} cadastrado.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {rows.map((pr) => {
+                              const rate = usd.baseRate ?? usd.effectiveRate;
+                              const usdValue = pr.currency === 'USD' ? Number(pr.price) : (rate ? Number(pr.price) / rate : null);
+                              const brlValue = pr.currency === 'BRL' ? Number(pr.price) : (rate ? Number(pr.price) * rate : null);
+                              return (
+                                <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
+                                    <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <div className={`text-sm font-semibold ${pr.currency === 'USD' ? 'text-slate-900' : 'text-slate-500'}`}>{usdValue != null ? USD(usdValue) : '—'}</div>
+                                    <div className={`text-sm font-semibold ${pr.currency === 'BRL' ? 'text-slate-900' : 'text-slate-500'}`}>{brlValue != null ? BRL(brlValue) : '—'}</div>
+                                  </div>
+                                  <div className="flex gap-1 shrink-0">
+                                    <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
+                                    <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <div className={`text-sm font-semibold ${pr.currency === 'USD' ? 'text-slate-900' : 'text-slate-500'}`}>{usdValue != null ? USD(usdValue) : '—'}</div>
-                          <div className={`text-sm font-semibold ${pr.currency === 'BRL' ? 'text-slate-900' : 'text-slate-500'}`}>{brlValue != null ? BRL(brlValue) : '—'}</div>
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <button type="button" className="icon-btn" onClick={() => openEditPrice(pr)}><Pencil size={13} /></button>
-                          <button type="button" className="icon-btn hover:text-red-600" onClick={() => setPriceDeleteId(pr.id)}><Trash2 size={13} /></button>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
