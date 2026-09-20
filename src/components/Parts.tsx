@@ -594,7 +594,11 @@ export default function Parts() {
               ) : (
                 <div className="grid sm:grid-cols-2 gap-4">
                   {(['Novo', 'Usado'] as const).map((cond) => {
-                    const rows = priceRows.filter((pr) => (pr.condition ?? 'Novo') === cond);
+                    const rate = usd.baseRate ?? usd.effectiveRate;
+                    const toBRL = (pr: PriceRow) => pr.currency === 'BRL' ? Number(pr.price) : (rate ? Number(pr.price) * rate : Number(pr.price));
+                    const rows = priceRows
+                      .filter((pr) => (pr.condition ?? 'Novo') === cond)
+                      .sort((a, b) => toBRL(a) - toBRL(b));
                     return (
                       <div key={cond}>
                         <div className={`text-[11px] font-bold uppercase tracking-wide mb-2 ${cond === 'Usado' ? 'text-amber-600' : 'text-emerald-600'}`}>

@@ -11,7 +11,7 @@ const emptyForm = {
   sale_date: new Date().toISOString().slice(0, 10),
   currency: 'BRL', total_amount: 0, installment_count: 1, installment_interval_days: 30,
   first_installment_date: new Date().toISOString().slice(0, 10),
-  nf_tax: 0, nf_fee: 0, salesperson_commission: 0,
+  nf_tax: 0, nf_fee: 0, salesperson_commission: 0, card_fee_percent: 0,
   delivery_fee: 0, delivery_cost: 0, notes: '',
 };
 
@@ -150,10 +150,20 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
   const addRow = () => setRows((prev) => [...prev, { part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
 
-  const openNew = () => {
+  const openNew = async () => {
     setEditing(null);
     const today = new Date().toISOString().slice(0, 10);
-    setForm({ ...emptyForm, sale_date: today, first_installment_date: today });
+    // Card fee has no fixed table (rates change with the processor/plan) —
+    // just start from whatever the most recent sale actually used, so it
+    // tracks reality without ever being "locked in" anywhere.
+    const { data: lastSale } = await supabase
+      .from('sales')
+      .select('card_fee_percent')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastCardFee = Number(lastSale?.card_fee_percent) || 0;
+    setForm({ ...emptyForm, sale_date: today, first_installment_date: today, card_fee_percent: lastCardFee });
     setRows([{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
     setFiles([]);
     setError(''); setOpen(true);
@@ -168,6 +178,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
       first_installment_date: s.first_installment_date ?? s.sale_date,
       nf_tax: Number(s.nf_tax) || 0, nf_fee: Number(s.nf_fee) || 0,
       salesperson_commission: Number(s.salesperson_commission) || 0,
+      card_fee_percent: Number(s.card_fee_percent) || 0,
       delivery_fee: Number(s.delivery_fee) || 0, delivery_cost: Number(s.delivery_cost) || 0,
       notes: s.notes ?? '',
     });
@@ -259,6 +270,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
         nf_tax: Number(form.nf_tax),
         nf_fee: Number(form.nf_fee),
         salesperson_commission: Number(form.salesperson_commission),
+        card_fee_percent: Number(form.card_fee_percent),
         delivery_fee: Number(form.delivery_fee),
         delivery_cost: Number(form.delivery_cost),
         notes: form.notes || null,
@@ -344,7 +356,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
       const p = allParts.find((x) => x.id === r.part_id);
       return s + (p ? Number(p.unit_cost) * r.quantity : 0);
     }, 0);
-    const ded = t * (Number(form.nf_tax) + Number(form.nf_fee) + Number(form.salesperson_commission)) / 100;
+    const ded = t * (Number(form.nf_tax) + Number(form.nf_fee) + Number(form.salesperson_commission) + Number(form.card_fee_percent)) / 100;
     return { gross: t + fee, ded, cost, totalCost, net: t + fee - ded - cost - totalCost };
   };
 
@@ -389,7 +401,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((s) => {
                   const t = Number(s.total_amount) + Number(s.delivery_fee || 0);
-                  const ded = t * (Number(s.nf_tax) + Number(s.nf_fee) + Number(s.salesperson_commission)) / 100;
+                  const ded = t * (Number(s.nf_tax) + Number(s.nf_fee) + Number(s.salesperson_commission) + Number(s.card_fee_percent)) / 100;
                   const cogs = costBySale[s.id] ?? 0;
                   const net = t - ded - Number(s.delivery_cost || 0) - cogs;
                   return (
@@ -517,6 +529,14 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
               <div className="flex items-center justify-between mb-2">
                 <span className="label mb-0">Peças vendidas</span>
                 <button type="button" className="btn-ghost text-xs px-2 py-1" onClick={addRow}><Plus size={14} /> Adicionar peça</button>
+              </div>
+              <div className="hidden sm:grid grid-cols-12 gap-2 px-1 mb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+                <span className="col-span-3">Peça</span>
+                <span className="col-span-2">Condição</span>
+                <span className="col-span-3">Unidade / Nº Série</span>
+                <span className="col-span-1 text-center">Qtd</span>
+                <span className="col-span-2 text-right">Valor Unit.</span>
+                <span className="col-span-1"></span>
               </div>
               <div className="space-y-2">
                 {rows.map((r, i) => {
@@ -666,6 +686,9 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
               <Field label="Imposto NF (%)"><input type="number" step="0.01" className={inputCls} value={form.nf_tax} onChange={(e) => setForm({ ...form, nf_tax: Number(e.target.value) })} /></Field>
               <Field label="Taxa NF (%)"><input type="number" step="0.01" className={inputCls} value={form.nf_fee} onChange={(e) => setForm({ ...form, nf_fee: Number(e.target.value) })} /></Field>
               <Field label="Comissão Vendedor (%)"><input type="number" step="0.01" className={inputCls} value={form.salesperson_commission} onChange={(e) => setForm({ ...form, salesperson_commission: Number(e.target.value) })} /></Field>
+              <Field label="Taxa Cartão (%)" hint="digite a taxa real da operadora para este nº de parcelas">
+                <input type="number" step="0.01" className={inputCls} value={form.card_fee_percent} onChange={(e) => setForm({ ...form, card_fee_percent: Number(e.target.value) })} />
+              </Field>
             </div>
             {(() => {
               const { gross, ded, cost, totalCost, net } = netCalc();

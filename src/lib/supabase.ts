@@ -158,6 +158,7 @@ export type Sale = {
   nf_tax: number;
   nf_fee: number;
   salesperson_commission: number;
+  card_fee_percent: number;
   delivery_fee: number;
   delivery_cost: number;
   first_installment_date: string | null;
