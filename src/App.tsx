@@ -2,7 +2,7 @@ import { useState } from 'react';
 import logo from './assets/logo.png';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users as UsersIcon,
-  Wallet, Boxes, Menu, X, ClipboardList, Wrench, Settings as SettingsIcon,
+  Wallet, Boxes, Menu, X, ClipboardList, ListChecks, Wrench, Settings as SettingsIcon,
   LogOut, Loader2, ShieldAlert, KeyRound,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
@@ -15,6 +15,7 @@ import MaintenanceScreen from './components/Maintenance';
 import Settings from './components/Settings';
 import Suppliers from './components/Suppliers';
 import Purchases from './components/Purchases';
+import PurchaseSuggestions from './components/PurchaseSuggestions';
 import Orders from './components/Orders';
 import Sales from './components/Sales';
 import Customers from './components/Customers';
@@ -25,7 +26,7 @@ import UsersScreen from './components/Users';
 import ChangePassword from './components/ChangePassword';
 
 type ViewId =
-  | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases'
+  | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases' | 'purchase_suggestions'
   | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance'
   | 'competition' | 'settings' | 'users';
 
@@ -55,6 +56,7 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'orders', label: 'Pedidos', icon: ClipboardList, roles: ['admin', 'vendedor', 'estoque_compras'] },
       { id: 'purchases', label: 'Compras', icon: ShoppingCart, roles: ['admin', 'estoque_compras'] },
+      { id: 'purchase_suggestions', label: 'Sugestão de Compras', icon: ListChecks, roles: ['admin', 'estoque_compras'] },
       { id: 'sales', label: 'Vendas', icon: Receipt, roles: ['admin', 'vendedor'] },
       { id: 'maintenance', label: 'Manutenções', icon: Wrench, roles: ['admin', 'estoque_compras'] },
     ],
@@ -133,6 +135,7 @@ export default function App() {
       case 'suppliers': return <Suppliers />;
       case 'orders': return <Orders />;
       case 'purchases': return <Purchases />;
+      case 'purchase_suggestions': return <PurchaseSuggestions />;
       case 'sales': return <Sales onNewCustomer={goToNewCustomer} />;
       case 'customers': return <Customers autoOpenNew={autoOpenNewCustomer} onAutoOpenNewConsumed={() => setAutoOpenNewCustomer(false)} />;
       case 'financial': return <Financial />;
