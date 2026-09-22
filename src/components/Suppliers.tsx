@@ -4,7 +4,7 @@ import { supabase, type Supplier } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete } from './ui';
 
 const empty = {
-  name: '', country: 'Brasil', is_international: false,
+  name: '', country: 'Brasil', is_international: false, is_competitor: false,
   contact_name: '', email: '', phone: '', document: '', website: '', notes: '',
 };
 
@@ -44,7 +44,7 @@ export default function Suppliers() {
   const openEdit = (s: Supplier) => {
     setEditing(s);
     setForm({
-      name: s.name, country: s.country, is_international: s.is_international,
+      name: s.name, country: s.country, is_international: s.is_international, is_competitor: s.is_competitor,
       contact_name: s.contact_name ?? '', email: s.email ?? '', phone: s.phone ?? '',
       document: s.document ?? '', website: s.website ?? '', notes: s.notes ?? '',
     });
@@ -59,6 +59,7 @@ export default function Suppliers() {
       name: form.name.trim(),
       country: form.country.trim(),
       is_international: form.is_international,
+      is_competitor: form.is_competitor,
       contact_name: form.contact_name || null,
       email: form.email || null,
       phone: form.phone || null,
@@ -131,6 +132,7 @@ export default function Suppliers() {
                           <Building2 size={16} className="text-slate-500" />
                         </div>
                         <span className="font-medium text-slate-900">{s.name}</span>
+                        {s.is_competitor && <Badge tone="amber">Concorrente</Badge>}
                       </div>
                     </td>
                     <td className="td">
@@ -182,6 +184,10 @@ export default function Suppliers() {
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" checked={form.is_international} onChange={(e) => setForm({ ...form, is_international: e.target.checked })} className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500" />
               <span className="text-sm text-slate-700">Fornecedor internacional (importação)</span>
+            </label>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" checked={form.is_competitor} onChange={(e) => setForm({ ...form, is_competitor: e.target.checked })} className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500" />
+              <span className="text-sm text-slate-700">Também é concorrente (aparece em Preços da Concorrência)</span>
             </label>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>

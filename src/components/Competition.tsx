@@ -1,26 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Search, ExternalLink, Users } from 'lucide-react';
-import { supabase, type Competitor } from '../lib/supabase';
-import { Modal, Field, EmptyState, PageHeader, ConfirmDelete } from './ui';
+import { Plus, Pencil, Trash2, Search, ExternalLink, Users, Building2 } from 'lucide-react';
+import { supabase, type Supplier } from '../lib/supabase';
+import { Modal, Field, EmptyState, PageHeader, ConfirmDelete, Badge } from './ui';
 
-const empty = { name: '', website: '', notes: '' };
+const empty = { name: '', website: '', notes: '', is_international: false };
 const inputCls = 'input';
 
+// Concorrentes agora vivem na mesma tabela de Fornecedores (is_competitor
+// = true) — evita ter a mesma empresa cadastrada duas vezes quando ela é
+// tanto uma fonte de preço quanto um lugar de onde você já compra.
 export default function Competition() {
-  const [items, setItems] = useState<Competitor[]>([]);
+  const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Competitor | null>(null);
+  const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [removeId, setRemoveId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('competitors').select('*').order('name');
-    if (error) setError(error.message); else setItems(data as Competitor[]);
+    const { data, error } = await supabase.from('suppliers').select('*').eq('is_competitor', true).order('name');
+    if (error) setError(error.message); else setItems(data as Supplier[]);
     setLoading(false);
   };
 
@@ -33,9 +36,9 @@ export default function Competition() {
   }, [items, query]);
 
   const openNew = () => { setEditing(null); setForm(empty); setError(''); setOpen(true); };
-  const openEdit = (c: Competitor) => {
+  const openEdit = (c: Supplier) => {
     setEditing(c);
-    setForm({ name: c.name, website: c.website ?? '', notes: c.notes ?? '' });
+    setForm({ name: c.name, website: c.website ?? '', notes: c.notes ?? '', is_international: c.is_international });
     setError(''); setOpen(true);
   };
 
@@ -47,29 +50,33 @@ export default function Competition() {
       name: form.name.trim(),
       website: form.website || null,
       notes: form.notes || null,
+      is_international: form.is_international,
+      is_competitor: true,
     };
     let err;
     if (editing) {
-      ({ error: err } = await supabase.from('competitors').update(payload).eq('id', editing.id));
+      ({ error: err } = await supabase.from('suppliers').update(payload).eq('id', editing.id));
     } else {
-      ({ error: err } = await supabase.from('competitors').insert(payload));
+      ({ error: err } = await supabase.from('suppliers').insert({ ...payload, country: form.is_international ? 'Internacional' : 'Brasil' }));
     }
     setSaving(false);
     if (err) { setError(err.message); return; }
     setOpen(false); load();
   };
 
+  // "Remover" aqui só tira a marcação de concorrente — nunca apaga o
+  // fornecedor de verdade, porque ele pode ter compras reais vinculadas.
   const remove = async () => {
-    if (!deleteId) return;
-    await supabase.from('competitors').delete().eq('id', deleteId);
-    setDeleteId(null); load();
+    if (!removeId) return;
+    await supabase.from('suppliers').update({ is_competitor: false }).eq('id', removeId);
+    setRemoveId(null); load();
   };
 
   return (
     <div>
       <PageHeader
         title="Concorrentes"
-        subtitle={`${items.length} concorrentes cadastrados`}
+        subtitle={`${items.length} concorrentes cadastrados — compartilha o cadastro com Fornecedores`}
         action={<button className="btn-primary" onClick={openNew}><Plus size={16} /> Novo concorrente</button>}
       />
 
@@ -99,7 +106,12 @@ export default function Competition() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50/50 transition">
-                    <td className="td font-medium text-slate-900">{c.name}</td>
+                    <td className="td font-medium text-slate-900">
+                      <div className="flex items-center gap-2">
+                        {c.name}
+                        <Badge tone="slate"><Building2 size={11} /> também fornecedor</Badge>
+                      </div>
+                    </td>
                     <td className="td">
                       {c.website ? (
                         <a href={c.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sky-600 hover:text-sky-700 hover:underline">
@@ -111,7 +123,7 @@ export default function Competition() {
                     <td className="td">
                       <div className="flex justify-end gap-1">
                         <button className="icon-btn" onClick={() => openEdit(c)}><Pencil size={15} /></button>
-                        <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(c.id)}><Trash2 size={15} /></button>
+                        <button className="icon-btn hover:text-red-600" title="Remover da lista de concorrentes" onClick={() => setRemoveId(c.id)}><Trash2 size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -129,6 +141,13 @@ export default function Competition() {
             <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <Field label="Website"><input className={inputCls} value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="https://" /></Field>
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" checked={form.is_international} onChange={(e) => setForm({ ...form, is_international: e.target.checked })} className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500" />
+              <span className="text-sm text-slate-700">Empresa internacional</span>
+            </label>
+            <p className="text-xs text-slate-400">
+              Esse cadastro é compartilhado com Fornecedores — se um dia você comprar dessa empresa, é só usar o mesmo nome lá, sem duplicar.
+            </p>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
               <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
@@ -137,9 +156,13 @@ export default function Competition() {
         </Modal>
       )}
 
-      {deleteId && (
-        <Modal title="Excluir concorrente" onClose={() => setDeleteId(null)}>
-          <ConfirmDelete message="Excluir este concorrente? Os preços vinculizados ficarão sem vínculo." onConfirm={remove} onCancel={() => setDeleteId(null)} />
+      {removeId && (
+        <Modal title="Remover concorrente" onClose={() => setRemoveId(null)}>
+          <ConfirmDelete
+            message="Remover da lista de concorrentes? O cadastro de fornecedor (se houver histórico de compras) continua existindo — só deixa de aparecer aqui."
+            onConfirm={remove}
+            onCancel={() => setRemoveId(null)}
+          />
         </Modal>
       )}
     </div>

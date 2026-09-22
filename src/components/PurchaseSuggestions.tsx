@@ -29,7 +29,7 @@ export default function PurchaseSuggestions() {
       const [{ data: parts }, { data: prices }, { data: purchaseItems }, { data: settings }] = await Promise.all([
         supabase.from('parts').select('id, sku, name, stock_quantity, min_stock, unit_cost, unit_price'),
         supabase.from('competition_prices').select('part_id, price, currency, competitor, observed_at').order('observed_at', { ascending: false }),
-        supabase.from('purchase_items').select('part_id, created_at, purchase:purchase_id(purchase_date, supplier:supplier_id(name))').order('created_at', { ascending: false }),
+        supabase.from('purchase_items').select('part_id, created_at, unit_cost, purchase:purchase_id(purchase_date, currency, exchange_rate, supplier:supplier_id(name))').order('created_at', { ascending: false }),
         supabase.from('app_settings').select('usd_base_rate').eq('id', 'default').maybeSingle(),
       ]);
       const rate = Number((settings as any)?.usd_base_rate) || 0;
@@ -52,7 +52,18 @@ export default function PurchaseSuggestions() {
       }
 
       const supplierByPart = new Map<string, string>();
+      const lastCostByPart = new Map<string, number>();
       for (const pi of (purchaseItems ?? []) as any[]) {
+        if (!lastCostByPart.has(pi.part_id)) {
+          // Raw item price only — no freight/IOF/import tax rateio — but
+          // still converted to R$ using the exchange rate that purchase
+          // actually used, so a USD purchase and a BRL purchase remain
+          // comparable to each other and to the competitor's price.
+          const raw = Number(pi.unit_cost) || 0;
+          const isUSD = pi.purchase?.currency === 'USD';
+          const rate = Number(pi.purchase?.exchange_rate) || 0;
+          lastCostByPart.set(pi.part_id, isUSD && rate ? raw * rate : raw);
+        }
         if (!supplierByPart.has(pi.part_id) && pi.purchase?.supplier?.name) {
           supplierByPart.set(pi.part_id, pi.purchase.supplier.name);
         }
@@ -60,7 +71,7 @@ export default function PurchaseSuggestions() {
 
       const built: Row[] = needsAttention.map((p: any) => ({
         part_id: p.id, sku: p.sku, name: p.name,
-        stock: Number(p.stock_quantity), min: Number(p.min_stock), lastCost: Number(p.unit_cost) || 0,
+        stock: Number(p.stock_quantity), min: Number(p.min_stock), lastCost: lastCostByPart.get(p.id) ?? 0,
         lowestCompetitor: lowestByPart.has(p.id) ? {
           price: lowestByPart.get(p.id)!.price, currency: lowestByPart.get(p.id)!.currency, competitor: lowestByPart.get(p.id)!.competitor,
         } : null,
@@ -78,7 +89,7 @@ export default function PurchaseSuggestions() {
     if (filter === 'zero') r = r.filter((x) => x.stock === 0);
     if (filter === 'cheaper') r = r.filter((x) => {
       if (!x.lowestCompetitor) return false;
-      const ourPrice = x.lastCost; // rough reference — cost, not sale price, since sale price varies by condition
+      const ourPrice = x.lastCost; // raw item price only — no freight/IOF/import tax, matching how the competitor's price is quoted
       const compUsd = x.lowestCompetitor.currency === 'USD' ? x.lowestCompetitor.price : (usdRate ? x.lowestCompetitor.price / usdRate : x.lowestCompetitor.price);
       const compBRL = x.lowestCompetitor.currency === 'BRL' ? x.lowestCompetitor.price : compUsd * usdRate;
       return ourPrice > 0 && compBRL < ourPrice;
@@ -100,7 +111,7 @@ export default function PurchaseSuggestions() {
     <div>
       <PageHeader
         title="Sugestão de Compras"
-        subtitle="Peças no estoque mínimo ou abaixo, com o último custo pago e o menor preço encontrado na concorrência."
+        subtitle="Peças no estoque mínimo ou abaixo. Custo mostra só o valor do item (sem frete/IOF/imposto), pra comparar direto com o preço anunciado pelo concorrente."
       />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -155,7 +166,7 @@ export default function PurchaseSuggestions() {
               <tr className="border-b border-slate-200">
                 <th className="th">Peça</th>
                 <th className="th text-right">Estoque / Mín.</th>
-                <th className="th text-right">Último custo pago</th>
+                <th className="th text-right">Custo do item (última compra)</th>
                 <th className="th text-right">Menor preço concorrente</th>
                 <th className="th">Fornecedor sugerido</th>
               </tr>
@@ -175,7 +186,12 @@ export default function PurchaseSuggestions() {
                   <td className="td text-right">
                     {r.lowestCompetitor ? (
                       <>
-                        <div className="font-medium">{r.lowestCompetitor.currency === 'USD' ? '$' : 'R$'} {r.lowestCompetitor.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                        <div className="font-medium">
+                          {r.lowestCompetitor.currency === 'USD' ? '$' : 'R$'} {r.lowestCompetitor.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          {r.lowestCompetitor.currency === 'USD' && usdRate > 0 && (
+                            <span className="text-slate-400 font-normal"> ({BRL(r.lowestCompetitor.price * usdRate)})</span>
+                          )}
+                        </div>
                         <div className="text-xs text-slate-400">{r.lowestCompetitor.competitor}</div>
                       </>
                     ) : <span className="text-slate-300">—</span>}

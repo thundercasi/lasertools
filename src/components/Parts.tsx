@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3, Wrench, Copy, Image as ImageIcon } from 'lucide-react';
-import { supabase, type Part, type Competitor, type CompetitionPrice, type Maintenance, type PartUnit, type PartStock, BRL, USD, formatDate } from '../lib/supabase';
+import { supabase, type Part, type Competitor, type Supplier, type CompetitionPrice, type Maintenance, type PartUnit, type PartStock, BRL, USD, formatDate } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
 
@@ -28,7 +28,7 @@ type PriceRow = CompetitionPrice;
 export default function Parts() {
   const usd = useUsdRate();
   const [parts, setParts] = useState<Part[]>([]);
-  const [competitors, setCompetitors] = useState<Competitor[]>([]);
+  const [competitors, setCompetitors] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -69,11 +69,11 @@ export default function Parts() {
     setLoading(true);
     const [{ data, error }, { data: compData }, { data: stockData }] = await Promise.all([
       supabase.from('parts').select('*').order('name'),
-      supabase.from('competitors').select('*').order('name'),
+      supabase.from('suppliers').select('*').order('name'),
       supabase.from('part_stock').select('*'),
     ]);
     if (error) { setError(error.message); } else { setParts(data as Part[]); }
-    setCompetitors((compData as Competitor[]) ?? []);
+    setCompetitors((compData as Supplier[]) ?? []);
     setStock((stockData as PartStock[]) ?? []);
     setLoading(false);
   };
@@ -161,7 +161,7 @@ export default function Parts() {
     setUnitRows((units as PartUnit[]) ?? []);
     const { data: prices } = await supabase
       .from('competition_prices')
-      .select('*, competitor_ref:competitor_id(*)')
+      .select('*, supplier:supplier_id(*)')
       .eq('part_id', p.id)
       .order('observed_at', { ascending: false });
     setPriceRows((prices as PriceRow[]) ?? []);
@@ -213,7 +213,7 @@ export default function Parts() {
       if (!e2 && partId && priceRows.length > 0) {
         const pending = priceRows.map((r) => ({
           part_id: partId,
-          competitor_id: r.competitor_id || null,
+          supplier_id: r.supplier_id || null,
           competitor: r.competitor,
           price: Number(r.price),
           currency: r.currency,
@@ -267,7 +267,7 @@ export default function Parts() {
   const openEditPrice = (pr: PriceRow) => {
     setEditingPrice(pr);
     setPriceForm({
-      competitor_id: pr.competitor_id ?? '',
+      competitor_id: pr.supplier_id ?? '',
       competitor: pr.competitor ?? '',
       price: Number(pr.price) || 0,
       currency: pr.currency,
@@ -279,21 +279,24 @@ export default function Parts() {
   };
 
   const savePrice = async () => {
-    let competitorId = priceForm.competitor_id === NEW_COMPETITOR ? '' : priceForm.competitor_id;
-    let compName = competitors.find((c) => c.id === competitorId)?.name ?? '';
+    let supplierId = priceForm.competitor_id === NEW_COMPETITOR ? '' : priceForm.competitor_id;
+    let compName = competitors.find((c) => c.id === supplierId)?.name ?? '';
 
     if (priceForm.competitor_id === NEW_COMPETITOR) {
       const newName = priceForm.competitor.trim();
-      if (!newName) { setError('Digite o nome do novo concorrente.'); return; }
+      if (!newName) { setError('Digite o nome do novo fornecedor/concorrente.'); return; }
       setPriceSaving(true);
-      const { data: created, error: cErr } = await supabase.from('competitors').insert({ name: newName }).select('*').single();
+      // Concorrentes vivem na tabela suppliers agora (is_competitor=true)
+      // — evita duplicar cadastro quando essa mesma empresa também vira
+      // fonte de compra um dia.
+      const { data: created, error: cErr } = await supabase.from('suppliers').insert({ name: newName, is_competitor: true }).select('*').single();
       if (cErr) { setPriceSaving(false); setError(cErr.message); return; }
-      competitorId = created.id;
+      supplierId = created.id;
       compName = created.name;
-      setCompetitors((prev) => [...prev, created as Competitor].sort((a, b) => a.name.localeCompare(b.name)));
+      setCompetitors((prev) => [...prev, created as Supplier].sort((a, b) => a.name.localeCompare(b.name)));
     }
 
-    if (!compName) { setError('Selecione ou cadastre um concorrente.'); return; }
+    if (!compName) { setError('Selecione ou cadastre um fornecedor.'); return; }
     setPriceSaving(true);
 
     if (!editing) {
@@ -302,7 +305,8 @@ export default function Parts() {
       const localRow = {
         id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         part_id: '',
-        competitor_id: competitorId || null,
+        competitor_id: null,
+        supplier_id: supplierId || null,
         competitor: compName,
         price: Number(priceForm.price),
         currency: priceForm.currency,
@@ -310,7 +314,7 @@ export default function Parts() {
         observed_at: priceForm.observed_at,
         notes: priceForm.notes || null,
         created_at: new Date().toISOString(),
-        competitor_ref: competitors.find((c) => c.id === competitorId) ?? null,
+        supplier: competitors.find((c) => c.id === supplierId) ?? null,
       } as PriceRow;
       setPriceRows((prev) => editingPrice ? prev.map((r) => (r.id === editingPrice.id ? { ...localRow, id: editingPrice.id } : r)) : [localRow, ...prev]);
       setPriceSaving(false);
@@ -320,7 +324,7 @@ export default function Parts() {
 
     const payload = {
       part_id: editing.id,
-      competitor_id: competitorId || null,
+      supplier_id: supplierId || null,
       competitor: compName,
       price: Number(priceForm.price),
       currency: priceForm.currency,
@@ -339,7 +343,7 @@ export default function Parts() {
     setPriceOpen(false);
     const { data: prices } = await supabase
       .from('competition_prices')
-      .select('*, competitor_ref:competitor_id(*)')
+      .select('*, supplier:supplier_id(*)')
       .eq('part_id', editing.id)
       .order('observed_at', { ascending: false });
     setPriceRows((prices as PriceRow[]) ?? []);
@@ -357,7 +361,7 @@ export default function Parts() {
     setPriceDeleteId(null);
     const { data: prices } = await supabase
       .from('competition_prices')
-      .select('*, competitor_ref:competitor_id(*)')
+      .select('*, supplier:supplier_id(*)')
       .eq('part_id', editing.id)
       .order('observed_at', { ascending: false });
     setPriceRows((prices as PriceRow[]) ?? []);
@@ -583,14 +587,14 @@ export default function Parts() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <BarChart3 size={16} className="text-slate-400" />
-                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Preços da concorrência</span>
+                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Preços de Mercado</span>
                 </div>
                 <button type="button" onClick={openNewPrice} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700">
                   <Plus size={14} /> Adicionar preço
                 </button>
               </div>
               {priceRows.length === 0 ? (
-                <p className="text-xs text-slate-400">Nenhum preço de concorrente cadastrado.</p>
+                <p className="text-xs text-slate-400">Nenhum preço de mercado cadastrado.</p>
               ) : (
                 <div className="grid sm:grid-cols-2 gap-4">
                   {(['Novo', 'Usado'] as const).map((cond) => {
@@ -613,9 +617,14 @@ export default function Parts() {
                               const usdValue = pr.currency === 'USD' ? Number(pr.price) : (rate ? Number(pr.price) / rate : null);
                               const brlValue = pr.currency === 'BRL' ? Number(pr.price) : (rate ? Number(pr.price) * rate : null);
                               return (
-                                <div key={pr.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                                <div key={pr.id} className={`flex items-center gap-3 bg-slate-50 rounded-lg p-3 border-l-4 ${pr.supplier?.is_competitor ? 'border-amber-400' : 'border-transparent'}`}>
                                   <div className="min-w-0 flex-1">
-                                    <div className="text-sm font-medium text-slate-900 truncate">{pr.competitor_ref?.name ?? pr.competitor}</div>
+                                    <div className="text-sm font-medium text-slate-900 truncate flex items-center gap-1.5">
+                                      {pr.supplier?.name ?? pr.competitor}
+                                      {pr.supplier?.is_competitor && (
+                                        <span className="text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded shrink-0">Concorrente</span>
+                                      )}
+                                    </div>
                                     <div className="text-xs text-slate-400">{formatDate(pr.observed_at)}</div>
                                   </div>
                                   <div className="text-right shrink-0">
@@ -679,22 +688,22 @@ export default function Parts() {
 
       {/* Price modal */}
       {priceOpen && (
-        <Modal title={editingPrice ? 'Editar preço concorrente' : 'Novo preço concorrente'} onClose={() => setPriceOpen(false)}>
+        <Modal title={editingPrice ? 'Editar preço de mercado' : 'Novo preço de mercado'} onClose={() => setPriceOpen(false)}>
           <div className="space-y-4">
-            <Field label="Concorrente">
+            <Field label="Fornecedor">
               <select
                 className={inputCls}
                 value={priceForm.competitor_id}
                 onChange={(e) => setPriceForm({ ...priceForm, competitor_id: e.target.value, competitor: e.target.value === NEW_COMPETITOR ? priceForm.competitor : '' })}
               >
                 <option value="">— Selecione —</option>
-                {competitors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                <option value={NEW_COMPETITOR}>+ Novo concorrente...</option>
+                {competitors.map((c) => <option key={c.id} value={c.id}>{c.name}{c.is_competitor ? ' (concorrente)' : ''}</option>)}
+                <option value={NEW_COMPETITOR}>+ Novo fornecedor/concorrente...</option>
               </select>
             </Field>
             {priceForm.competitor_id === NEW_COMPETITOR && (
-              <Field label="Nome do novo concorrente">
-                <input className={inputCls} value={priceForm.competitor} onChange={(e) => setPriceForm({ ...priceForm, competitor: e.target.value })} placeholder="Ex: Concorrente XYZ" autoFocus />
+              <Field label="Nome do novo fornecedor/concorrente">
+                <input className={inputCls} value={priceForm.competitor} onChange={(e) => setPriceForm({ ...priceForm, competitor: e.target.value })} placeholder="Ex: Fornecedor XYZ" autoFocus />
               </Field>
             )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

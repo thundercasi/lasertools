@@ -56,6 +56,7 @@ export type Supplier = {
   name: string;
   country: string;
   is_international: boolean;
+  is_competitor: boolean;
   contact_name: string | null;
   email: string | null;
   phone: string | null;
@@ -314,6 +315,7 @@ export type CompetitionPrice = {
   id: string;
   part_id: string;
   competitor_id: string | null;
+  supplier_id: string | null;
   competitor: string;
   price: number;
   currency: string;
@@ -323,6 +325,7 @@ export type CompetitionPrice = {
   created_at: string;
   part?: Part | null;
   competitor_ref?: Competitor | null;
+  supplier?: Supplier | null;
 };
 
 export const BRL = (v: number) =>
