@@ -632,9 +632,10 @@ export default function Purchases() {
               {/* Column headers */}
               <div className="grid grid-cols-12 gap-2 mb-1 px-0.5">
                 <span className="col-span-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">Peça</span>
+                <span className="col-span-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">Condição</span>
                 <span className="col-span-1 text-xs font-semibold text-slate-400 uppercase tracking-wide text-center">Qtde</span>
                 <span className="col-span-2 text-xs font-semibold text-slate-400 uppercase tracking-wide text-right">Valor unit.</span>
-                <span className="col-span-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">Nº Série/Lote</span>
+                <span className="col-span-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">Nº Série</span>
               </div>
               <div className="space-y-2">
                 {rows.map((r, i) => {

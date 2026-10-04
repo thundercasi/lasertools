@@ -2,8 +2,8 @@ import { useState } from 'react';
 import logo from './assets/logo.png';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users as UsersIcon,
-  Wallet, Boxes, Menu, X, ClipboardList, ListChecks, Wrench, Settings as SettingsIcon,
-  LogOut, Loader2, ShieldAlert, KeyRound,
+  Wallet, Boxes, Menu, X, ClipboardList, ListChecks, History, Wrench, Settings as SettingsIcon,
+  LogOut, Loader2, ShieldAlert, KeyRound, Globe,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
 import { useAuth } from './lib/useAuth';
@@ -16,6 +16,7 @@ import Settings from './components/Settings';
 import Suppliers from './components/Suppliers';
 import Purchases from './components/Purchases';
 import PurchaseSuggestions from './components/PurchaseSuggestions';
+import PartHistory from './components/PartHistory';
 import Orders from './components/Orders';
 import Sales from './components/Sales';
 import Customers from './components/Customers';
@@ -24,11 +25,12 @@ import Payables from './components/Payables';
 import Competition from './components/Competition';
 import UsersScreen from './components/Users';
 import ChangePassword from './components/ChangePassword';
+import PortalAdmin from './components/PortalAdmin';
 
 type ViewId =
   | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases' | 'purchase_suggestions'
   | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance'
-  | 'competition' | 'settings' | 'users';
+  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin';
 
 // undefined roles = every role can see it (besides 'sem_papel', which never
 // sees anything — gated separately, before the menu even renders).
@@ -62,10 +64,22 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: 'Relatórios',
+    items: [
+      { id: 'part_history', label: 'Histórico da Peça', icon: History, roles: ['admin', 'estoque_compras', 'vendedor'] },
+    ],
+  },
+  {
     label: 'Financeiro',
     items: [
       { id: 'financial', label: 'Contas a Receber', icon: Wallet, roles: ['admin', 'financeiro'] },
       { id: 'payables', label: 'Contas a Pagar', icon: Wallet, roles: ['admin', 'financeiro'] },
+    ],
+  },
+  {
+    label: 'Clientes',
+    items: [
+      { id: 'portal_admin', label: 'Portal do Cliente', icon: Globe, roles: ['admin', 'vendedor', 'estoque_compras'] },
     ],
   },
   {
@@ -136,6 +150,7 @@ export default function App() {
       case 'orders': return <Orders />;
       case 'purchases': return <Purchases />;
       case 'purchase_suggestions': return <PurchaseSuggestions />;
+      case 'part_history': return <PartHistory />;
       case 'sales': return <Sales onNewCustomer={goToNewCustomer} />;
       case 'customers': return <Customers autoOpenNew={autoOpenNewCustomer} onAutoOpenNewConsumed={() => setAutoOpenNewCustomer(false)} />;
       case 'financial': return <Financial />;
@@ -143,6 +158,7 @@ export default function App() {
       case 'competition': return <Competition />;
       case 'settings': return <Settings />;
       case 'users': return <UsersScreen myId={session.user.id} />;
+      case 'portal_admin': return <PortalAdmin />;
     }
   };
 

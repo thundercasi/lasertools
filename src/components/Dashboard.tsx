@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { supabase, type Part, type Sale, type Installment, BRL, formatDate } from '../lib/supabase';
 import { StatCard, Modal, Field } from './ui';
-import FinancialTimeline from './FinancialTimeline';
+import MonthlyResults from './MonthlyResults';
 import StockOverview from './StockOverview';
 
 export default function Dashboard() {
@@ -152,7 +152,7 @@ export default function Dashboard() {
       </div>
 
       <div className="mb-6">
-        <FinancialTimeline />
+        <MonthlyResults />
       </div>
 
       <div className="mb-6">

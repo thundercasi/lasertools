@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Users, Search, Building } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, Search, Building, KeySquare } from 'lucide-react';
 import { supabase, type Customer } from '../lib/supabase';
 import { Modal, Field, EmptyState, PageHeader, ConfirmDelete } from './ui';
+import PortalAccess from './PortalAccess';
 
 const empty = {
   name: '', contact_name: '', email: '', phone: '', document: '',
@@ -25,6 +26,7 @@ export default function Customers({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [portalFor, setPortalFor] = useState<Customer | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -150,6 +152,7 @@ export default function Customers({
                     </td>
                     <td className="td">
                       <div className="flex justify-end gap-1">
+                        <button className="icon-btn" title="Acesso ao Portal do Cliente" onClick={() => setPortalFor(c)}><KeySquare size={15} /></button>
                         <button className="icon-btn" onClick={() => openEdit(c)}><Pencil size={15} /></button>
                         <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(c.id)}><Trash2 size={15} /></button>
                       </div>
@@ -184,6 +187,8 @@ export default function Customers({
           </div>
         </Modal>
       )}
+
+      {portalFor && <PortalAccess customer={portalFor} onClose={() => setPortalFor(null)} />}
 
       {deleteId && (
         <Modal title="Excluir cliente" onClose={() => setDeleteId(null)}>
