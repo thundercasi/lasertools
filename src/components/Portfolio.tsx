@@ -169,7 +169,7 @@ export default function Portfolio() {
       ) : printed.length === 0 ? (
         <div className="card print:hidden"><EmptyState icon={BookOpen} title="Nenhuma peça para o portfólio" subtitle="Verifique a categoria escolhida ou cadastre preços nas peças." /></div>
       ) : (
-        <div className="card p-8 print:p-0 print:shadow-none print:border-0" id="portfolio-print">
+        <div className="card p-8 print:p-0 print:mt-0 print:shadow-none print:border-0" id="portfolio-print">
           <div className="flex items-start justify-between gap-6 border-b border-slate-200 pb-4 mb-6">
             <img src={logo} alt="Laser Tools Components" className="w-40 object-contain" />
             <div className="text-right text-sm text-slate-500">
@@ -180,9 +180,9 @@ export default function Portfolio() {
           </div>
 
           {grouped.map(([cat, list]) => (
-            <div key={cat} className="mb-6 break-inside-avoid-page">
+            <div key={cat} className="mb-6">
               {grouped.length > 1 || cat !== 'Outros' ? (
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">{cat}</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2 break-after-avoid">{cat}</div>
               ) : null}
               <table className="w-full text-sm">
                 <thead>

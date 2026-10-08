@@ -62,7 +62,8 @@ body {
 @media print {
   aside, header, .print\:hidden { display: none !important; }
   main { padding: 0 !important; overflow: visible !important; }
-  body, html, #root { height: auto !important; }
+  body, html, #root { height: auto !important; background: white !important; }
+  #root > div { background: white !important; }
   #proposal-print { box-shadow: none !important; border: none !important; }
 }
 ::-webkit-scrollbar-thumb { @apply bg-slate-200 rounded-full; }
