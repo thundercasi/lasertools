@@ -3,7 +3,7 @@ import logo from './assets/logo.png';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users as UsersIcon,
   Wallet, Boxes, Menu, X, ClipboardList, ListChecks, History, Wrench, Settings as SettingsIcon,
-  LogOut, Loader2, ShieldAlert, KeyRound, Globe,
+  LogOut, Loader2, ShieldAlert, KeyRound, Globe, BookOpen,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
 import { useAuth } from './lib/useAuth';
@@ -26,11 +26,12 @@ import Competition from './components/Competition';
 import UsersScreen from './components/Users';
 import ChangePassword from './components/ChangePassword';
 import PortalAdmin from './components/PortalAdmin';
+import Portfolio from './components/Portfolio';
 
 type ViewId =
   | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases' | 'purchase_suggestions'
   | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance'
-  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin';
+  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin' | 'portfolio';
 
 // undefined roles = every role can see it (besides 'sem_papel', which never
 // sees anything — gated separately, before the menu even renders).
@@ -67,6 +68,7 @@ const navGroups: NavGroup[] = [
     label: 'Relatórios',
     items: [
       { id: 'part_history', label: 'Histórico da Peça', icon: History, roles: ['admin', 'estoque_compras', 'vendedor'] },
+      { id: 'portfolio', label: 'Portfólio de Peças', icon: BookOpen, roles: ['admin', 'vendedor', 'estoque_compras'] },
     ],
   },
   {
@@ -159,6 +161,7 @@ export default function App() {
       case 'settings': return <Settings />;
       case 'users': return <UsersScreen myId={session.user.id} />;
       case 'portal_admin': return <PortalAdmin />;
+      case 'portfolio': return <Portfolio />;
     }
   };
 
