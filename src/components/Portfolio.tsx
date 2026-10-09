@@ -116,7 +116,7 @@ export default function Portfolio() {
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-700">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" className="w-4 h-4 rounded" checked={showStock} onChange={(e) => setShowStock(e.target.checked)} />
-              Mostrar disponibilidade
+              Mostrar coluna Disponibilidade (Pronta entrega / Sob encomenda)
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" className="w-4 h-4 rounded" checked={showUsed} onChange={(e) => setShowUsed(e.target.checked)} />
