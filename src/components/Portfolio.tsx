@@ -120,7 +120,7 @@ export default function Portfolio() {
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" className="w-4 h-4 rounded" checked={showUsed} onChange={(e) => setShowUsed(e.target.checked)} />
-              Mostrar coluna Usado
+              Mostrar coluna Remanufaturado
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" className="w-4 h-4 rounded" checked={includeNoPrice} onChange={(e) => setIncludeNoPrice(e.target.checked)} />
@@ -191,7 +191,7 @@ export default function Portfolio() {
                     <th className="th">Modelo compatível</th>
                     {showStock && <th className="th">Disponibilidade</th>}
                     <th className="th text-right">Novo</th>
-                    {showUsed && <th className="th text-right pr-0">Usado</th>}
+                    {showUsed && <th className="th text-right pr-0">Remanufaturado</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
