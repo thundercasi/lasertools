@@ -7,7 +7,6 @@ import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone 
 const empty = {
   name: '', part_number: '', description: '', category: '', machine_model: '',
   brand: '', min_stock: 0, tracked_by_unit: false, photo_url: '', warranty_months: 0,
-  show_in_catalog: true,
 };
 
 // Catalog pricing is per condition now — the same part can be sold new
@@ -133,7 +132,6 @@ export default function Parts() {
       tracked_by_unit: !!p.tracked_by_unit,
       photo_url: '',
       warranty_months: Number(p.warranty_months) || 0,
-      show_in_catalog: p.show_in_catalog !== false,
     });
     setPriceRows([]);
     setMaintenanceRows([]);
@@ -154,7 +152,6 @@ export default function Parts() {
       tracked_by_unit: !!p.tracked_by_unit,
       photo_url: p.photo_url ?? '',
       warranty_months: Number(p.warranty_months) || 0,
-      show_in_catalog: p.show_in_catalog !== false,
     });
     const { data: cp } = await supabase.from('part_condition_prices').select('*').eq('part_id', p.id);
     const cpMap: CondPrices = { Novo: 0, Usado: 0 };
@@ -196,7 +193,6 @@ export default function Parts() {
       tracked_by_unit: !!form.tracked_by_unit,
       photo_url: form.photo_url || null,
       warranty_months: Number(form.warranty_months) || null,
-      show_in_catalog: !!form.show_in_catalog,
       // Kept in sync as a convenience/legacy value: the highest
       // per-condition price. Real pricing lives in part_condition_prices.
       unit_price: Math.max(...CONDITIONS.map((c) => Number(condPrices[c]) || 0), 0),
@@ -434,7 +430,6 @@ export default function Parts() {
                           </div>
                           <div>
                             {p.name}
-                            {p.show_in_catalog === false && <span className="ml-2 align-middle"><Badge tone="violet">Interno</Badge></span>}
                             {p.part_number && <div className="text-xs font-normal text-slate-400">P/N: {p.part_number}</div>}
                           </div>
                         </div>
@@ -538,22 +533,6 @@ export default function Parts() {
                 <span className="block text-xs text-slate-400">
                   Cada exemplar vira um registro próprio, com número de série (opcional), custo real e histórico de manutenção.
                   Indicado para peças de maior valor. Sem isso, a peça é controlada apenas por quantidade.
-                </span>
-              </span>
-            </label>
-
-            <label className="flex items-start gap-2.5 cursor-pointer select-none bg-slate-50 rounded-xl p-3">
-              <input
-                type="checkbox"
-                className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 mt-0.5"
-                checked={form.show_in_catalog}
-                onChange={(e) => setForm({ ...form, show_in_catalog: e.target.checked })}
-              />
-              <span>
-                <span className="text-sm font-medium text-slate-800">Exibir no portfólio do cliente</span>
-                <span className="block text-xs text-slate-400">
-                  Desmarque para itens de uso interno (ex.: códigos de upgrade). Eles continuam no estoque e nas vendas,
-                  mas não saem no relatório de Portfólio nem aparecem na busca do Portal do Cliente.
                 </span>
               </span>
             </label>

@@ -630,20 +630,19 @@ export default function Purchases() {
                 <button type="button" className="btn-ghost text-xs px-2 py-1" onClick={addRow}><Plus size={14} /> Adicionar peça</button>
               </div>
               {/* Column headers */}
-              <div className="grid grid-cols-[minmax(0,1fr)_84px_68px_104px_minmax(0,0.7fr)_28px] gap-2 mb-1 px-0.5">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Peça</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Condição</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide text-center">Qtde</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide text-right">Valor unit.</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Nº Série</span>
+              <div className="grid grid-cols-12 gap-2 mb-1 px-0.5">
+                <span className="col-span-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">Peça</span>
+                <span className="col-span-1 text-xs font-semibold text-slate-400 uppercase tracking-wide text-center">Qtde</span>
+                <span className="col-span-2 text-xs font-semibold text-slate-400 uppercase tracking-wide text-right">Valor unit.</span>
+                <span className="col-span-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">Nº Série/Lote</span>
               </div>
               <div className="space-y-2">
                 {rows.map((r, i) => {
                   const selectedPart = parts.find((x) => x.id === r.part_id);
                   return (
-                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_84px_68px_104px_minmax(0,0.7fr)_28px] gap-2 items-center">
+                  <div key={i} className="grid grid-cols-12 gap-2 items-center">
                     <select
-                      className={inputCls}
+                      className={`${inputCls} col-span-4`}
                       value={r.part_id}
                       onChange={(e) => {
                         const p = parts.find((x) => x.id === e.target.value);
@@ -656,7 +655,7 @@ export default function Purchases() {
                       ))}
                     </select>
                     <select
-                      className={`${inputCls} text-xs`}
+                      className={`${inputCls} col-span-2 text-xs`}
                       value={r.condition}
                       onChange={(e) => updateRow(i, { condition: e.target.value })}
                       title={selectedPart?.tracked_by_unit ? 'Condição desta unidade' : 'Condição deste lote'}
@@ -666,25 +665,25 @@ export default function Purchases() {
                     </select>
                     <input
                       type="number" min={1} placeholder="Qtd"
-                      className={`${inputCls} text-center px-1`}
+                      className={`${inputCls} col-span-1 text-center`}
                       value={r.quantity}
                       onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
                     />
                     <input
                       type="number" step="0.01" placeholder="Custo unit."
-                      className={`${inputCls} text-right`}
+                      className={`${inputCls} col-span-2 text-right`}
                       value={r.unit_cost}
                       onChange={(e) => updateRow(i, { unit_cost: Number(e.target.value) })}
                     />
                     <input
                       type="text" placeholder="Nº Série (opc.)"
-                      className={`${inputCls} text-xs`}
+                      className={`${inputCls} col-span-2 text-xs`}
                       value={r.serial_number}
                       onChange={(e) => updateRow(i, { serial_number: e.target.value })}
                       disabled={!!selectedPart && !selectedPart.tracked_by_unit}
                       title={selectedPart && !selectedPart.tracked_by_unit ? 'Esta peça não é controlada por unidade' : ''}
                     />
-                    <button type="button" className="icon-btn hover:text-red-600 justify-self-center" onClick={() => removeRow(i)}>
+                    <button type="button" className="col-span-1 icon-btn hover:text-red-600 justify-self-center" onClick={() => removeRow(i)}>
                       <XIcon size={16} />
                     </button>
                   </div>

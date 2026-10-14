@@ -52,9 +52,9 @@ export default function Payables() {
     return list;
   }, [items, filter, query, today]);
 
-  const totalPaid = items.filter((i) => i.paid).reduce((s, i) => s + Number(i.paid_amount), 0);
-  const totalPending = items.filter((i) => !i.paid && !isOverdue(i)).reduce((s, i) => s + Number(i.amount), 0);
-  const totalOverdue = items.filter(isOverdue).reduce((s, i) => s + Number(i.amount), 0);
+  const totalPaid = items.reduce((s, i) => s + Number(i.paid_amount || 0), 0);
+  const totalPending = items.filter((i) => !i.paid && !isOverdue(i)).reduce((s, i) => s + (Number(i.amount) - Number(i.paid_amount || 0)), 0);
+  const totalOverdue = items.filter(isOverdue).reduce((s, i) => s + (Number(i.amount) - Number(i.paid_amount || 0)), 0);
   const dueTodayCount = items.filter(isDueToday).length;
   const overdueCount = items.filter(isOverdue).length;
 
