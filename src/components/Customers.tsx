@@ -7,6 +7,7 @@ import PortalAccess from './PortalAccess';
 const empty = {
   name: '', contact_name: '', email: '', phone: '', document: '',
   city: '', state: '', notes: '',
+  cep: '', address: '', address_number: '', address_complement: '', neighborhood: '',
 };
 
 const inputCls = 'input';
@@ -58,6 +59,28 @@ export default function Customers({
     );
   }, [items, query]);
 
+  const [cepLoading, setCepLoading] = useState(false);
+  // Busca o endereço pelo CEP (ViaCEP) e preenche só os campos ainda vazios.
+  const lookupCep = async (raw: string) => {
+    const cep = raw.replace(/\D/g, '');
+    if (cep.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const d = await r.json();
+      if (!d.erro) {
+        setForm((f) => ({
+          ...f,
+          address: f.address || d.logradouro || '',
+          neighborhood: f.neighborhood || d.bairro || '',
+          city: f.city || d.localidade || '',
+          state: f.state || d.uf || '',
+        }));
+      }
+    } catch { /* sem internet ou CEP inexistente: o usuário preenche à mão */ }
+    setCepLoading(false);
+  };
+
   const openNew = () => { setEditing(null); setForm(empty); setError(''); setOpen(true); };
   const openEdit = (c: Customer) => {
     setEditing(c);
@@ -65,6 +88,8 @@ export default function Customers({
       name: c.name, contact_name: c.contact_name ?? '', email: c.email ?? '',
       phone: c.phone ?? '', document: c.document ?? '', city: c.city ?? '',
       state: c.state ?? '', notes: c.notes ?? '',
+      cep: c.cep ?? '', address: c.address ?? '', address_number: c.address_number ?? '',
+      address_complement: c.address_complement ?? '', neighborhood: c.neighborhood ?? '',
     });
     setError(''); setOpen(true);
   };
@@ -80,7 +105,12 @@ export default function Customers({
       phone: form.phone || null,
       document: form.document || null,
       city: form.city || null,
-      state: form.state || null,
+      state: form.state.trim().toUpperCase() || null,
+      cep: form.cep.replace(/\D/g, '') || null,
+      address: form.address.trim() || null,
+      address_number: form.address_number.trim() || null,
+      address_complement: form.address_complement.trim() || null,
+      neighborhood: form.neighborhood.trim() || null,
       notes: form.notes || null,
     };
     let err;
@@ -175,10 +205,21 @@ export default function Customers({
               <Field label="E-mail"><input className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
               <Field label="Telefone"><input className={inputCls} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
               <Field label="Documento (CPF/CNPJ)"><input className={inputCls} value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} /></Field>
-              <div />
-              <Field label="Cidade"><input className={inputCls} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></Field>
-              <Field label="Estado"><input className={inputCls} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></Field>
+              <Field label="CEP" hint={cepLoading ? 'buscando endereço…' : 'preenche o endereço automaticamente'}>
+                <input className={inputCls} value={form.cep} inputMode="numeric" placeholder="00000-000"
+                  onChange={(e) => setForm({ ...form, cep: e.target.value })}
+                  onBlur={() => lookupCep(form.cep)} />
+              </Field>
             </div>
+            <div className="grid sm:grid-cols-6 gap-4">
+              <div className="sm:col-span-4"><Field label="Endereço"><input className={inputCls} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field></div>
+              <div className="sm:col-span-2"><Field label="Número"><input className={inputCls} value={form.address_number} onChange={(e) => setForm({ ...form, address_number: e.target.value })} /></Field></div>
+              <div className="sm:col-span-3"><Field label="Complemento"><input className={inputCls} value={form.address_complement} onChange={(e) => setForm({ ...form, address_complement: e.target.value })} /></Field></div>
+              <div className="sm:col-span-3"><Field label="Bairro"><input className={inputCls} value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} /></Field></div>
+              <div className="sm:col-span-4"><Field label="Cidade"><input className={inputCls} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></Field></div>
+              <div className="sm:col-span-2"><Field label="UF"><input className={inputCls} maxLength={2} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase() })} /></Field></div>
+            </div>
+            <p className="text-xs text-slate-400 -mt-1">Para emitir boleto, o banco exige CPF/CNPJ, endereço, cidade, UF e CEP do cliente.</p>
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>

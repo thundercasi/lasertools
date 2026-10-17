@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Wallet, CheckCircle2, Clock, AlertCircle, Bell, Search, Undo2, Barcode, Copy, Check, Loader2 } from 'lucide-react';
-import { supabase, type Installment, type Boleto, BRL, formatDate } from '../lib/supabase';
+import { Wallet, CheckCircle2, Clock, AlertCircle, Bell, Search, Undo2, Barcode, Copy, Check, Loader2, RefreshCw, FileDown, Ban } from 'lucide-react';
+import { supabase, type Installment, type Boleto, BRL, formatDate, functionErrorMessage } from '../lib/supabase';
 import { Modal, Field, Badge, EmptyState, PageHeader } from './ui';
 
 export default function Financial() {
@@ -33,7 +33,7 @@ export default function Financial() {
     setBoletoError('');
     const { data, error: e } = await supabase.functions.invoke('emit-boleto', { body: { installment_id: installmentId } });
     setEmittingId(null);
-    if (e || data?.error) { setBoletoError(data?.error || e?.message || 'Falha ao emitir boleto.'); return; }
+    if (e || data?.error) { setBoletoError(data?.error || (await functionErrorMessage(e)) || 'Falha ao emitir boleto.'); await loadBoletos(); return; }
     await loadBoletos();
     if (data?.boleto) setViewingBoleto(data.boleto as Boleto);
   };
@@ -228,16 +228,16 @@ export default function Financial() {
                       </td>
                       <td className="td text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {!i.paid && (
-                            boletos[i.id] ? (
+                          {(!i.paid || boletos[i.id]?.status === 'Pago') && (
+                            boletos[i.id] && ACTIVE_STATUSES.includes(boletos[i.id].status) ? (
                               <button
                                 onClick={() => setViewingBoleto(boletos[i.id])}
                                 className="text-xs font-semibold px-3 py-1.5 rounded-lg text-sky-600 hover:bg-sky-50 transition inline-flex items-center gap-1"
                               >
                                 <Barcode size={13} />
-                                {boletos[i.id].status === 'Simulado' ? 'Boleto (simulado)' : 'Ver boleto'}
+                                {BOLETO_LABEL[boletos[i.id].status] ?? 'Ver boleto'}
                               </button>
-                            ) : (
+                            ) : i.paid ? null : (
                               <button
                                 onClick={() => emitirBoleto(i.id)}
                                 disabled={emittingId === i.id}
@@ -318,13 +318,35 @@ export default function Financial() {
         </Modal>
       )}
 
-      {viewingBoleto && <BoletoModal boleto={viewingBoleto} onClose={() => setViewingBoleto(null)} />}
+      {viewingBoleto && (
+        <BoletoModal
+          boleto={viewingBoleto}
+          onChanged={(b) => { setViewingBoleto(b); loadBoletos(); }}
+          onClose={() => setViewingBoleto(null)}
+        />
+      )}
     </div>
   );
 }
 
-function BoletoModal({ boleto, onClose }: { boleto: Boleto; onClose: () => void }) {
+// Boletos que ainda "valem" para a parcela; Cancelado/Expirado/Erro liberam nova emissão.
+const ACTIVE_STATUSES = ['Simulado', 'Processando', 'Emitido', 'Pago'];
+const BOLETO_LABEL: Record<string, string> = {
+  Simulado: 'Boleto (simulado)',
+  Processando: 'Boleto (processando)',
+  Emitido: 'Ver boleto',
+  Pago: 'Boleto pago',
+};
+const STATUS_TONE: Record<string, 'slate' | 'green' | 'amber' | 'red' | 'blue'> = {
+  Simulado: 'amber', Processando: 'blue', Emitido: 'blue', Pago: 'green', Cancelado: 'slate', Expirado: 'slate', Erro: 'red',
+};
+
+function BoletoModal({ boleto, onChanged, onClose }: { boleto: Boleto; onChanged: (b: Boleto) => void; onClose: () => void }) {
   const [copied, setCopied] = useState<'linha' | 'pix' | null>(null);
+  const [busy, setBusy] = useState<'refresh' | 'pdf' | 'cancel' | null>(null);
+  const [err, setErr] = useState('');
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [motivo, setMotivo] = useState('');
 
   const copy = (text: string, which: 'linha' | 'pix') => {
     navigator.clipboard.writeText(text);
@@ -332,19 +354,57 @@ function BoletoModal({ boleto, onClose }: { boleto: Boleto; onClose: () => void 
     setTimeout(() => setCopied(null), 1500);
   };
 
+  const call = async (action: 'refresh' | 'pdf' | 'cancel', extra: Record<string, unknown> = {}) => {
+    setBusy(action);
+    setErr('');
+    const { data, error } = await supabase.functions.invoke('emit-boleto', { body: { action, boleto_id: boleto.id, ...extra } });
+    setBusy(null);
+    if (error || data?.error) { setErr(data?.error || (await functionErrorMessage(error)) || 'Falha na operação.'); return null; }
+    return data;
+  };
+
+  const refresh = async () => { const d = await call('refresh'); if (d?.boleto) onChanged(d.boleto); };
+  const cancel = async () => {
+    const d = await call('cancel', { motivo });
+    if (d?.boleto) { setConfirmCancel(false); onChanged(d.boleto); }
+  };
+  const downloadPdf = async () => {
+    const d = await call('pdf');
+    if (!d?.pdf) return;
+    const bytes = Uint8Array.from(atob(d.pdf), (ch) => ch.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `boleto-${boleto.seu_numero ?? boleto.id.slice(0, 8)}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  const real = boleto.status !== 'Simulado';
+  const canCancel = ['Simulado', 'Processando', 'Emitido'].includes(boleto.status);
+
   return (
-    <Modal title="Boleto" onClose={onClose}>
+    <Modal title="Boleto + PIX" onClose={onClose}>
       <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Badge tone={STATUS_TONE[boleto.status] ?? 'slate'}>{boleto.status}</Badge>
+          {boleto.situacao && <span className="text-xs text-slate-400">Inter: {boleto.situacao}</span>}
+        </div>
         {boleto.status === 'Simulado' && (
           <div className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
             ⚠️ Este é um boleto <strong>simulado</strong> — as credenciais do Banco Inter ainda não foram configuradas em Configurações. Nenhuma cobrança real foi gerada; os números abaixo não são válidos para pagamento.
           </div>
         )}
-        {boleto.status === 'Erro' && (
-          <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">
-            Falha ao emitir: {boleto.erro_mensagem}
+        {boleto.status === 'Processando' && (
+          <div className="text-sm text-sky-700 bg-sky-50 rounded-lg p-3">
+            O Inter recebeu a cobrança e ainda está gerando o boleto. Clique em <strong>Atualizar</strong> em alguns segundos.
           </div>
         )}
+        {boleto.status === 'Erro' && (
+          <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 break-words">Falha ao emitir: {boleto.erro_mensagem}</div>
+        )}
+        {err && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 break-words">{err}</div>}
+
         <div className="flex justify-between text-sm">
           <span className="text-slate-500">Valor</span>
           <span className="font-semibold text-slate-900">{BRL(boleto.valor)}</span>
@@ -353,6 +413,12 @@ function BoletoModal({ boleto, onClose }: { boleto: Boleto; onClose: () => void 
           <span className="text-slate-500">Vencimento</span>
           <span className="font-semibold text-slate-900">{formatDate(boleto.vencimento)}</span>
         </div>
+        {boleto.nosso_numero && (
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-500">Nosso número</span>
+            <span className="font-mono text-slate-700">{boleto.nosso_numero}</span>
+          </div>
+        )}
         {boleto.linha_digitavel && (
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Linha digitável</label>
@@ -375,9 +441,40 @@ function BoletoModal({ boleto, onClose }: { boleto: Boleto; onClose: () => void 
             </div>
           </div>
         )}
-        <div className="flex justify-end">
-          <button className="btn-primary" onClick={onClose}>Fechar</button>
-        </div>
+
+        {confirmCancel ? (
+          <div className="border border-red-200 bg-red-50/60 rounded-xl p-3 space-y-3">
+            <p className="text-sm text-red-700">
+              Cancelar este boleto{real ? ' no Banco Inter' : ''}? O cliente não conseguirá mais pagá-lo. Depois você pode emitir um novo para a parcela.
+            </p>
+            <input className="input" placeholder="Motivo (opcional)" maxLength={50} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={() => setConfirmCancel(false)}>Voltar</button>
+              <button className="btn-danger" disabled={busy === 'cancel'} onClick={cancel}>
+                {busy === 'cancel' ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />} Confirmar cancelamento
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            {canCancel && (
+              <button className="btn-ghost text-red-600 hover:bg-red-50 mr-auto" onClick={() => setConfirmCancel(true)}>
+                <Ban size={15} /> Cancelar boleto
+              </button>
+            )}
+            {real && boleto.codigo_solicitacao && (
+              <button className="btn-secondary" disabled={!!busy} onClick={refresh}>
+                {busy === 'refresh' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Atualizar
+              </button>
+            )}
+            {real && boleto.linha_digitavel && (
+              <button className="btn-secondary" disabled={!!busy} onClick={downloadPdf}>
+                {busy === 'pdf' ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />} Baixar PDF
+              </button>
+            )}
+            <button className="btn-primary" onClick={onClose}>Fechar</button>
+          </div>
+        )}
       </div>
     </Modal>
   );

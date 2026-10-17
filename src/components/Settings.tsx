@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, RefreshCw, Landmark } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Settings as SettingsIcon, RefreshCw, Landmark, Loader2, PlugZap } from 'lucide-react';
+import { supabase, functionErrorMessage } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
 
@@ -72,7 +72,9 @@ export default function Settings() {
 }
 
 function InterCredentials() {
-  const [status, setStatus] = useState<{ environment: string; configured: boolean; updated_at: string | null } | null>(null);
+  const [status, setStatus] = useState<{ environment: string; configured: boolean; updated_at: string | null; conta_corrente: string | null } | null>(null);
+  const [environment, setEnvironment] = useState<'producao' | 'sandbox'>('producao');
+  const [contaCorrente, setContaCorrente] = useState('');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [certPem, setCertPem] = useState('');
@@ -80,10 +82,15 @@ function InterCredentials() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const loadStatus = async () => {
     const { data } = await supabase.rpc('get_inter_status');
-    setStatus(Array.isArray(data) ? data[0] : data);
+    const s = Array.isArray(data) ? data[0] : data;
+    setStatus(s ?? null);
+    if (s?.environment === 'sandbox' || s?.environment === 'producao') setEnvironment(s.environment);
+    setContaCorrente(s?.conta_corrente ?? '');
   };
 
   useEffect(() => { loadStatus(); }, []);
@@ -96,10 +103,16 @@ function InterCredentials() {
 
   const save = async () => {
     setError('');
+    setTestResult(null);
+    if (!status?.configured && !(clientId.trim() && clientSecret.trim() && certPem.trim() && keyPem.trim())) {
+      setError('Na primeira vez, preencha os quatro campos: Client ID, Client Secret, certificado e chave.');
+      return;
+    }
     setSaving(true);
     const { error: e } = await supabase.rpc('admin_save_inter_credentials', {
       p_client_id: clientId.trim(), p_client_secret: clientSecret.trim(),
       p_cert_pem: certPem.trim(), p_key_pem: keyPem.trim(),
+      p_environment: environment, p_conta_corrente: contaCorrente.trim() || null,
     });
     setSaving(false);
     if (e) { setError(e.message); return; }
@@ -109,32 +122,54 @@ function InterCredentials() {
     loadStatus();
   };
 
+  const testConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    const { data, error: e } = await supabase.functions.invoke('emit-boleto', { body: { action: 'test' } });
+    setTesting(false);
+    if (data?.ok) setTestResult({ ok: true, msg: `Conexão com o Inter OK (${data.environment === 'sandbox' ? 'sandbox' : 'produção'}). Nenhuma cobrança foi gerada.` });
+    else setTestResult({ ok: false, msg: data?.error || (await functionErrorMessage(e)) || 'Falha ao testar a conexão.' });
+  };
+
+  const envLabel = status?.environment === 'producao' ? 'produção' : status?.environment === 'sandbox' ? 'sandbox (testes)' : null;
+
   return (
     <div className="card p-6 max-w-xl mt-6">
       <div className="flex items-center gap-2 mb-1">
         <Landmark size={16} className="text-slate-400" />
-        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Emissão de Boleto (Banco Inter)</span>
+        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Emissão de Boleto + PIX (Banco Inter)</span>
       </div>
       <p className="text-xs text-slate-400 mb-4">
-        Cole aqui o Client ID, Client Secret e o conteúdo dos arquivos de certificado (.crt) e chave (.key) gerados no portal de desenvolvedores do Inter.
+        Cole aqui o Client ID, Client Secret e selecione os arquivos de certificado (.crt) e chave (.key) gerados na integração do Inter.
         Esses dados ficam guardados de forma protegida — o app nunca os exibe de volta depois de salvos.
       </p>
 
       {status && (
-        <div className={`text-sm rounded-lg p-3 mb-4 ${status.environment === 'producao' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-          {status.environment === 'producao'
-            ? '✅ Configurado — emitindo boletos reais pelo Banco Inter.'
+        <div className={`text-sm rounded-lg p-3 mb-4 ${envLabel ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+          {envLabel
+            ? `✅ Credenciais salvas — ambiente: ${envLabel}.${status.updated_at ? ` Atualizado em ${new Date(status.updated_at).toLocaleString('pt-BR')}.` : ''}`
             : '⚠️ Modo simulado — nenhuma credencial real configurada ainda. Os boletos emitidos no sistema são fictícios até você preencher os campos abaixo.'}
         </div>
       )}
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">{error}</div>}
 
       <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Ambiente">
+            <select className="input" value={environment} onChange={(e) => setEnvironment(e.target.value as 'producao' | 'sandbox')}>
+              <option value="producao">Produção (boletos reais)</option>
+              <option value="sandbox">Sandbox (testes)</option>
+            </select>
+          </Field>
+          <Field label="Conta corrente" hint="opcional">
+            <input className="input" inputMode="numeric" placeholder="só se tiver mais de uma conta" value={contaCorrente} onChange={(e) => setContaCorrente(e.target.value)} />
+          </Field>
+        </div>
         <Field label="Client ID">
-          <input className="input" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+          <input className="input" autoComplete="off" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={status?.configured ? 'em branco = manter o atual' : ''} />
         </Field>
         <Field label="Client Secret">
-          <input type="password" className="input" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
+          <input type="password" className="input" autoComplete="new-password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={status?.configured ? 'em branco = manter o atual' : ''} />
         </Field>
         <Field label="Certificado (.crt)" hint="selecione o arquivo — o conteúdo é lido automaticamente">
           <input type="file" accept=".crt,.pem" className="input" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f, setCertPem); }} />
@@ -144,9 +179,22 @@ function InterCredentials() {
           <input type="file" accept=".key,.pem" className="input" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f, setKeyPem); }} />
           {keyPem && <p className="text-xs text-emerald-600 mt-1">Arquivo carregado ({keyPem.length} caracteres).</p>}
         </Field>
+        {status?.configured && (
+          <p className="text-xs text-slate-400">Campos deixados em branco mantêm o valor já salvo — dá para trocar só o ambiente ou a conta.</p>
+        )}
       </div>
 
-      <div className="flex justify-end mt-4">
+      {testResult && (
+        <div className={`text-sm rounded-lg p-3 mt-4 break-words ${testResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+          {testResult.ok ? '✅ ' : '❌ '}{testResult.msg}
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 mt-4">
+        <button className="btn-secondary" disabled={testing || !status?.configured} onClick={testConnection}
+          title={status?.configured ? 'Só autentica no Inter — não gera cobrança' : 'Salve as credenciais primeiro'}>
+          {testing ? <Loader2 size={15} className="animate-spin" /> : <PlugZap size={15} />} Testar conexão
+        </button>
         <button className="btn-primary" disabled={saving} onClick={save}>
           {saving ? 'Salvando...' : saved ? 'Salvo!' : 'Salvar credenciais'}
         </button>

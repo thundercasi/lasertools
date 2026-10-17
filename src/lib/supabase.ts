@@ -43,6 +43,7 @@ export type Part = {
   tracked_by_unit: boolean;
   photo_url: string | null;
   warranty_months: number | null;
+  show_in_catalog: boolean;
   unit_cost: number;
   unit_price: number;
   min_stock: number;
@@ -75,6 +76,11 @@ export type Customer = {
   document: string | null;
   city: string | null;
   state: string | null;
+  address: string | null;
+  address_number: string | null;
+  address_complement: string | null;
+  neighborhood: string | null;
+  cep: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -226,6 +232,7 @@ export type Boleto = {
   codigo_barras: string | null;
   pix_copia_cola: string | null;
   codigo_solicitacao: string | null;
+  situacao: string | null;
   erro_mensagem: string | null;
   created_at: string;
 };
@@ -344,3 +351,17 @@ export const formatDate = (d: string | null) => {
   if (isNaN(dt.getTime())) return '—';
   return dt.toLocaleDateString('pt-BR');
 };
+
+// Lê a mensagem { error } que uma Edge Function devolveu com status não-2xx
+// (o supabase-js só expõe "Edge Function returned a non-2xx status code").
+export async function functionErrorMessage(e: unknown): Promise<string | null> {
+  if (!e) return null;
+  const ctx = (e as { context?: Response }).context;
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = await ctx.clone().json();
+      if (body?.error) return String(body.error);
+    } catch { /* corpo não é JSON */ }
+  }
+  return e instanceof Error ? e.message : String(e);
+}
