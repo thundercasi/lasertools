@@ -2,7 +2,7 @@
 //
 // Ações (campo `action` no corpo; padrão "emit"):
 //   test     → só autentica no Inter (não gera cobrança). Admin.
-//   emit     → { installment_id }  emite boleto+PIX da parcela.
+//   emit     → { installment_id, vencimento? }  emite boleto+PIX da parcela.
 //   refresh  → { boleto_id }       consulta a cobrança e atualiza dados/situação.
 //   pdf      → { boleto_id }       devolve o PDF em base64.
 //   cancel   → { boleto_id, motivo } cancela a cobrança no Inter.
@@ -42,6 +42,23 @@ const json = (body: unknown, status = 200) =>
 
 const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Data de hoje no fuso de Brasília (toISOString usa UTC e vira o dia às 21h).
+const todayBR = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+const UF_BY_NAME: Record<string, string> = {
+  acre: 'AC', alagoas: 'AL', amapa: 'AP', amazonas: 'AM', bahia: 'BA', ceara: 'CE', 'distrito federal': 'DF',
+  'espirito santo': 'ES', goias: 'GO', maranhao: 'MA', 'mato grosso': 'MT', 'mato grosso do sul': 'MS',
+  'minas gerais': 'MG', para: 'PA', paraiba: 'PB', parana: 'PR', pernambuco: 'PE', piaui: 'PI',
+  'rio de janeiro': 'RJ', 'rio grande do norte': 'RN', 'rio grande do sul': 'RS', rondonia: 'RO', roraima: 'RR',
+  'santa catarina': 'SC', 'sao paulo': 'SP', sergipe: 'SE', tocantins: 'TO',
+};
+// Aceita sigla ou nome por extenso (com ou sem acento).
+function toUF(raw: string | null | undefined): string | null {
+  const s = (raw ?? '').trim();
+  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+  const key = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return UF_BY_NAME[key] ?? null;
+}
 
 // ---------- HTTP com certificado (mTLS) ----------
 
@@ -145,7 +162,7 @@ async function loadCreds(db: SupabaseClient): Promise<Creds | null> {
   return data as Creds;
 }
 
-async function emit(db: SupabaseClient, installmentId: string) {
+async function emit(db: SupabaseClient, installmentId: string, vencimentoOverride?: string) {
   const { data: inst, error } = await db
     .from('installments')
     .select('*, customer:customer_id(*), sale:sale_id(customer_id)')
@@ -165,7 +182,10 @@ async function emit(db: SupabaseClient, installmentId: string) {
 
   const { count } = await db.from('boletos').select('id', { count: 'exact', head: true }).eq('installment_id', installmentId);
   const seuNumero = `P${installmentId.replace(/-/g, '').slice(0, 10)}-${(count ?? 0) + 1}`.slice(0, 15);
-  const base = { installment_id: installmentId, customer_id: customerId, valor, vencimento: inst.due_date, seu_numero: seuNumero };
+  // Parcela vencida: a tela pede uma nova data, que vale só para o boleto.
+  const vencimento: string = vencimentoOverride || inst.due_date;
+  if (vencimentoOverride && !/^\d{4}-\d{2}-\d{2}$/.test(vencimentoOverride)) throw new UserError('Data de vencimento inválida.');
+  const base = { installment_id: installmentId, customer_id: customerId, valor, vencimento, seu_numero: seuNumero };
 
   const creds = await loadCreds(db);
   if (!creds) {
@@ -176,9 +196,8 @@ async function emit(db: SupabaseClient, installmentId: string) {
   }
 
   // Validações que o Inter exige antes de qualquer chamada.
-  const today = new Date().toISOString().slice(0, 10);
-  if (inst.due_date < today) {
-    throw new UserError('O vencimento desta parcela já passou. Altere a data de vencimento antes de emitir o boleto.');
+  if (vencimento < todayBR()) {
+    throw new UserError('O vencimento já passou. Informe uma nova data de vencimento para o boleto.');
   }
   const doc = digits(customer?.document);
   const missing: string[] = [];
@@ -187,7 +206,8 @@ async function emit(db: SupabaseClient, installmentId: string) {
   if (customer && doc.length !== 11 && doc.length !== 14) missing.push('CPF/CNPJ válido');
   if (customer && !customer.address) missing.push('endereço');
   if (customer && !customer.city) missing.push('cidade');
-  if (customer && !/^[A-Za-z]{2}$/.test((customer.state ?? '').trim())) missing.push('UF (2 letras)');
+  const uf = toUF(customer?.state);
+  if (customer && !uf) missing.push('UF (sigla, ex.: SP)');
   if (customer && digits(customer.cep).length !== 8) missing.push('CEP');
   if (missing.length) {
     throw new UserError(`Complete o cadastro do cliente${customer?.name ? ` "${customer.name}"` : ''} em Clientes: ${missing.join(', ')}.`);
@@ -208,7 +228,7 @@ async function emit(db: SupabaseClient, installmentId: string) {
       nome: String(customer.name).slice(0, 100),
       endereco: String(customer.address).slice(0, 100),
       cidade: String(customer.city).slice(0, 60),
-      uf: String(customer.state).trim().toUpperCase(),
+      uf: uf!,
       cep: digits(customer.cep),
     };
     if (customer.address_number) pagador.numero = String(customer.address_number).slice(0, 10);
@@ -219,7 +239,7 @@ async function emit(db: SupabaseClient, installmentId: string) {
     const created = await interApi(creds, token, 'POST', '', {
       seuNumero,
       valorNominal: valor,
-      dataVencimento: inst.due_date,
+      dataVencimento: vencimento,
       numDiasAgenda: 30,
       pagador,
       mensagem: { linha1: `Parcela ${inst.installment_number} - Laser Tools Componentes` },
@@ -340,7 +360,7 @@ Deno.serve(async (req) => {
       }
       case 'emit':
         if (!body.installment_id) throw new UserError('installment_id é obrigatório.');
-        return json({ boleto: await emit(db, body.installment_id) });
+        return json({ boleto: await emit(db, body.installment_id, body.vencimento) });
       case 'refresh':
         return json({ boleto: await refresh(db, body.boleto_id) });
       case 'pdf':

@@ -28,10 +28,26 @@ export default function Financial() {
     setBoletos(map);
   };
 
-  const emitirBoleto = async (installmentId: string) => {
+  // Parcela vencida: o Inter não aceita vencimento no passado, então
+  // pedimos uma nova data só para o boleto antes de emitir.
+  const [dueFor, setDueFor] = useState<Installment | null>(null);
+  const [newDue, setNewDue] = useState('');
+
+  const pedirEmissao = (i: Installment) => {
+    if (i.due_date < today) {
+      const d = new Date();
+      d.setDate(d.getDate() + 3);
+      setNewDue(d.toLocaleDateString('en-CA'));
+      setDueFor(i);
+      return;
+    }
+    emitirBoleto(i.id);
+  };
+
+  const emitirBoleto = async (installmentId: string, vencimento?: string) => {
     setEmittingId(installmentId);
     setBoletoError('');
-    const { data, error: e } = await supabase.functions.invoke('emit-boleto', { body: { installment_id: installmentId } });
+    const { data, error: e } = await supabase.functions.invoke('emit-boleto', { body: { installment_id: installmentId, vencimento } });
     setEmittingId(null);
     if (e || data?.error) { setBoletoError(data?.error || (await functionErrorMessage(e)) || 'Falha ao emitir boleto.'); await loadBoletos(); return; }
     await loadBoletos();
@@ -131,7 +147,6 @@ export default function Financial() {
   return (
     <div>
       <PageHeader title="Contas a Receber" subtitle="Gestão de parcelas e inadimplência." />
-      {boletoError && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">{boletoError}</div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <div className="card p-5">
@@ -239,7 +254,7 @@ export default function Financial() {
                               </button>
                             ) : i.paid ? null : (
                               <button
-                                onClick={() => emitirBoleto(i.id)}
+                                onClick={() => pedirEmissao(i)}
                                 disabled={emittingId === i.id}
                                 className="text-xs font-semibold px-3 py-1.5 rounded-lg text-sky-600 hover:bg-sky-50 transition inline-flex items-center gap-1"
                               >
@@ -318,8 +333,43 @@ export default function Financial() {
         </Modal>
       )}
 
-      {viewingBoleto && (
-        <BoletoModal
+      {dueFor && (
+        <Modal title="Parcela vencida — nova data do boleto" onClose={() => setDueFor(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              A parcela #{dueFor.installment_number} de <strong>{dueFor.customer?.name ?? 'cliente'}</strong> venceu em {formatDate(dueFor.due_date)}.
+              O banco não aceita boleto com vencimento no passado — escolha a nova data de vencimento do boleto.
+              A data da parcela no sistema não muda.
+            </p>
+            <Field label="Vencimento do boleto">
+              <input type="date" className="input" min={today} value={newDue} onChange={(e) => setNewDue(e.target.value)} />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={() => setDueFor(null)}>Cancelar</button>
+              <button
+                className="btn-primary"
+                disabled={!newDue || newDue < today}
+                onClick={() => { const id = dueFor.id; setDueFor(null); emitirBoleto(id, newDue); }}
+              >
+                <Barcode size={15} /> Emitir boleto
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {boletoError && (
+        <Modal title="Não foi possível emitir o boleto" onClose={() => setBoletoError('')}>
+          <div className="space-y-4">
+            <div className="text-sm text-red-700 bg-red-50 rounded-lg p-3 break-words">{boletoError}</div>
+            <div className="flex justify-end">
+              <button className="btn-primary" onClick={() => setBoletoError('')}>Entendi</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {viewingBoleto && (        <BoletoModal
           boleto={viewingBoleto}
           onChanged={(b) => { setViewingBoleto(b); loadBoletos(); }}
           onClose={() => setViewingBoleto(null)}
