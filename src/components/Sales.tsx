@@ -29,6 +29,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
   const [costBySale, setCostBySale] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [customerFilter, setCustomerFilter] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Sale | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -131,14 +132,24 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
 
   useEffect(() => { load(); }, []);
 
+  // Clientes que têm venda, com a quantidade — alimenta o filtro por cliente.
+  const customersWithSales = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const s of items) if (s.customer_id) count.set(s.customer_id, (count.get(s.customer_id) ?? 0) + 1);
+    return customers.filter((c) => count.has(c.id)).map((c) => ({ ...c, salesCount: count.get(c.id)! }));
+  }, [items, customers]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((s) =>
-      s.customer?.name.toLowerCase().includes(q) ||
-      s.status.toLowerCase().includes(q)
-    );
-  }, [items, query]);
+    let list = customerFilter ? items.filter((s) => s.customer_id === customerFilter) : items;
+    if (q) {
+      list = list.filter((s) =>
+        s.customer?.name.toLowerCase().includes(q) ||
+        s.status.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [items, query, customerFilter]);
 
   const computedTotal = useMemo(
     () => rows.reduce((sum, r) => sum + (r.part_id ? r.quantity * r.unit_price : 0), 0),
@@ -364,15 +375,26 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     <div>
       <PageHeader
         title="Vendas"
-        subtitle={`${items.length} vendas registradas`}
+        subtitle={customerFilter || query ? `${filtered.length} de ${items.length} vendas` : `${items.length} vendas registradas`}
         action={<button className="btn-primary" onClick={openNew}><Plus size={16} /> Nova venda</button>}
       />
 
-      <div className="card p-4 mb-4">
-        <div className="relative">
+      <div className="card p-4 mb-4 flex flex-col sm:flex-row gap-3">
+        <select className="input sm:w-80" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)}>
+          <option value="">Todos os clientes</option>
+          {customersWithSales.map((c) => (
+            <option key={c.id} value={c.id}>{c.name} ({c.salesCount})</option>
+          ))}
+        </select>
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input className="input pl-10" placeholder="Buscar por cliente ou status..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
+        {(customerFilter || query) && (
+          <button className="btn-ghost shrink-0" onClick={() => { setCustomerFilter(''); setQuery(''); }}>
+            <X size={15} /> Limpar
+          </button>
+        )}
       </div>
 
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">{error}</div>}
