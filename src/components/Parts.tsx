@@ -404,8 +404,8 @@ export default function Parts() {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="th">Nome</th>
-                  <th className="th">Marca</th>
-                  <th className="th">Categoria</th>
+                  <th className="th">Marca da peça</th>
+                  <th className="th">Marca do equipamento</th>
                   <th className="th">Controle</th>
                   <th className="th text-right">Disponível</th>
                   <th className="th text-right">Em manut.</th>
@@ -518,8 +518,8 @@ export default function Parts() {
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
               <Field label="Part Number" hint="identificador da peça no mercado"><input className={inputCls} value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} /></Field>
-              <Field label="Marca"><input className={inputCls} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></Field>
-              <Field label="Categoria"><input className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
+              <Field label="Marca da peça"><input className={inputCls} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></Field>
+              <Field label="Marca do equipamento"><input className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
               <Field label="Modelo da máquina"><input className={inputCls} value={form.machine_model} onChange={(e) => setForm({ ...form, machine_model: e.target.value })} /></Field>
               <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
               <Field label="Tempo de garantia (meses)"><input type="number" min={0} className={inputCls} value={form.warranty_months} onChange={(e) => setForm({ ...form, warranty_months: Number(e.target.value) })} /></Field>

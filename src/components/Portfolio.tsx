@@ -102,7 +102,7 @@ export default function Portfolio() {
         <div className="card p-5 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <label className="block">
-              <span className="label">Categoria</span>
+              <span className="label">Marca do equipamento</span>
               <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value={ALL}>Todas</option>
                 {categories.map((c) => <option key={c} value={c}>{c}</option>)}
