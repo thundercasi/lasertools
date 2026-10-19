@@ -520,7 +520,7 @@ export default function Parts() {
               <Field label="Part Number" hint="identificador da peça no mercado"><input className={inputCls} value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} /></Field>
               <Field label="Marca da peça"><input className={inputCls} value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></Field>
               <Field label="Marca do equipamento"><input className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
-              <Field label="Modelo da máquina"><input className={inputCls} value={form.machine_model} onChange={(e) => setForm({ ...form, machine_model: e.target.value })} /></Field>
+              <Field label="Modelo do equipamento"><input className={inputCls} value={form.machine_model} onChange={(e) => setForm({ ...form, machine_model: e.target.value })} /></Field>
               <Field label="Estoque mín."><input type="number" className={inputCls} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
               <Field label="Tempo de garantia (meses)"><input type="number" min={0} className={inputCls} value={form.warranty_months} onChange={(e) => setForm({ ...form, warranty_months: Number(e.target.value) })} /></Field>
             </div>
