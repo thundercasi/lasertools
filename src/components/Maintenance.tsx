@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Wrench, Search } from 'lucide-react';
 import { supabase, type Maintenance, type Part, type PartUnit, BRL, formatDate } from '../lib/supabase';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, ViewEditFooter } from './ui';
 
 const inputCls = 'input';
 
@@ -67,15 +67,19 @@ export default function MaintenanceScreen() {
 
   const totalCost = filtered.reduce((s, m) => s + Number(m.cost), 0);
 
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
   const openNew = () => {
     setEditing(null);
+    setViewing(false);
     setForm({ ...empty, maintenance_date: new Date().toISOString().slice(0, 10) });
     setError('');
     setOpen(true);
   };
 
-  const openEdit = (m: Maintenance) => {
+  const openEdit = (m: Maintenance, view = false) => {
     setEditing(m);
+    setViewing(view);
     setForm({
       part_id: m.part_id,
       maintenance_date: m.maintenance_date,
@@ -179,7 +183,7 @@ export default function MaintenanceScreen() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((m) => (
-                  <tr key={m.id} className="hover:bg-slate-50/50 transition">
+                  <tr key={m.id} className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(m, true)}>
                     <td className="td">
                       <div className="font-medium text-slate-900">{m.part?.name ?? '—'}</div>
                       {m.part?.brand && <div className="text-xs text-slate-400">{m.part.brand}</div>}
@@ -195,7 +199,7 @@ export default function MaintenanceScreen() {
                       <Badge tone={m.status === 'Concluída' ? 'green' : 'amber'}>{m.status ?? 'Em andamento'}</Badge>
                     </td>
                     <td className="td text-right font-semibold text-slate-900">{BRL(m.cost)}</td>
-                    <td className="td">
+                    <td className="td" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <button className="icon-btn" onClick={() => openEdit(m)}><Pencil size={15} /></button>
                         <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(m.id)}><Trash2 size={15} /></button>
@@ -217,8 +221,9 @@ export default function MaintenanceScreen() {
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar manutenção' : 'Nova manutenção'} onClose={() => setOpen(false)}>
+        <Modal title={viewing ? 'Consultar manutenção' : editing ? 'Editar manutenção' : 'Nova manutenção'} onClose={() => setOpen(false)}>
           <div className="space-y-4">
+            <fieldset disabled={viewing} className="space-y-4 min-w-0">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <Field label="Peça">
               <select
@@ -276,10 +281,8 @@ export default function MaintenanceScreen() {
             </div>
             <Field label="Descrição"><textarea className={inputCls} rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="O que foi feito na manutenção" /></Field>
             <p className="text-xs text-slate-400">O custo é somado ao custo médio da peça no estoque e gera automaticamente um lançamento em Contas a Pagar.</p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={() => (editing ? setConfirmSync(true) : save(true))}>{saving ? 'Salvando...' : 'Salvar'}</button>
-            </div>
+            </fieldset>
+            <ViewEditFooter viewing={viewing} saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={() => (editing ? setConfirmSync(true) : save(true))} />
           </div>
         </Modal>
       )}

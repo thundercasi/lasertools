@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Boxes, Search, AlertTriangle, TrendingUp, BarChart3, Wrench, Copy, Image as ImageIcon } from 'lucide-react';
 import { supabase, type Part, type Competitor, type Supplier, type CompetitionPrice, type Maintenance, type PartUnit, type PartStock, BRL, USD, formatDate } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, statusTone, ViewEditFooter } from './ui';
 
 const empty = {
   name: '', part_number: '', description: '', category: '', machine_model: '',
@@ -105,8 +105,12 @@ export default function Parts() {
     );
   }, [parts, query]);
 
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
+
   const openNew = () => {
     setEditing(null);
+    setViewing(false);
     setDuplicating(false);
     setForm({ ...empty });
     setPriceRows([]);
@@ -124,6 +128,7 @@ export default function Parts() {
   // competitor-price and maintenance histories belong to it alone.
   const openDuplicate = (p: Part) => {
     setEditing(null);
+    setViewing(false);
     setDuplicating(true);
     setForm({
       name: p.name, part_number: p.part_number ?? '', description: p.description ?? '',
@@ -143,8 +148,9 @@ export default function Parts() {
     setOpen(true);
   };
 
-  const openEdit = async (p: Part) => {
+  const openEdit = async (p: Part, view = false) => {
     setEditing(p);
+    setViewing(view);
     setDuplicating(false);
     setForm({
       name: p.name, part_number: p.part_number ?? '', description: p.description ?? '',
@@ -419,7 +425,7 @@ export default function Parts() {
                   const st = stockOf(p.id);
                   const low = st.total <= Number(p.min_stock);
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50/50 transition">
+                    <tr key={p.id} className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(p, true)}>
                       <td className="td font-medium text-slate-900">
                         <div className="flex items-center gap-2.5">
                           <div
@@ -464,7 +470,7 @@ export default function Parts() {
                       </td>
                       <td className="td text-right text-slate-600">{BRL(p.unit_cost)}</td>
                       <td className="td text-right font-semibold text-slate-900">{BRL(p.unit_price)}</td>
-                      <td className="td">
+                      <td className="td" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           <button className="icon-btn" title="Editar" onClick={() => openEdit(p)}><Pencil size={15} /></button>
                           <button className="icon-btn" title="Replicar" onClick={() => openDuplicate(p)}><Copy size={15} /></button>
@@ -481,9 +487,10 @@ export default function Parts() {
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar peça' : duplicating ? 'Replicar peça' : 'Nova peça'} onClose={() => setOpen(false)} wide>
+        <Modal title={viewing ? 'Consultar peça' : editing ? 'Editar peça' : duplicating ? 'Replicar peça' : 'Nova peça'} onClose={() => setOpen(false)} wide>
           <div className="space-y-4">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+            <fieldset disabled={viewing} className="space-y-4 min-w-0">
             {duplicating && (
               <div className="text-xs text-sky-700 bg-sky-50 rounded-lg p-3">
                 Replicando os dados de cadastro. Estoque, custo, preços de concorrentes e histórico de manutenções não são copiados — eles pertencem à peça original. Ajuste o que precisar e salve como uma peça nova.
@@ -699,10 +706,8 @@ export default function Parts() {
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
-            </div>
+            </fieldset>
+            <ViewEditFooter viewing={viewing} saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={save} />
           </div>
         </Modal>
       )}

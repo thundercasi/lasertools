@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { Plus, Pencil, Trash2, Receipt, Search, Paperclip, FileText, X, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase, type Sale, type Customer, type SaleFile, type SaleItem, type Part, type PartUnit, type PartStock, BRL, formatDate } from '../lib/supabase';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone, ViewEditFooter } from './ui';
 import { useSessionState } from '../lib/useSessionState';
 
 const SALE_STATUS = ['Pendente', 'Em andamento', 'Concluída', 'Cancelada'] as const;
@@ -161,8 +161,12 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
   const addRow = () => setRows((prev) => [...prev, { part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
 
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
+
   const openNew = async () => {
     setEditing(null);
+    setViewing(false);
     const today = new Date().toISOString().slice(0, 10);
     // Card fee has no fixed table (rates change with the processor/plan) —
     // just start from whatever the most recent sale actually used, so it
@@ -180,8 +184,9 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     setError(''); setOpen(true);
   };
 
-  const openEdit = async (s: Sale) => {
+  const openEdit = async (s: Sale, view = false) => {
     setEditing(s);
+    setViewing(view);
     setForm({
       code: s.code, customer_id: s.customer_id ?? '', status: s.status,
       sale_date: s.sale_date, currency: s.currency, total_amount: Number(s.total_amount) || 0,
@@ -428,8 +433,8 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                   const net = t - ded - Number(s.delivery_cost || 0) - cogs;
                   return (
                     <Fragment key={s.id}>
-                      <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => toggleExpand(s.id)}>
-                        <td className="td text-slate-400">
+                      <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(s, true)}>
+                        <td className="td text-slate-400 hover:text-slate-700" title="Ver itens" onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }}>
                           {expandedId === s.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </td>
                         <td className="td font-medium text-slate-900">{s.customer?.name ?? '—'}</td>
@@ -503,9 +508,10 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar venda' : 'Nova venda'} onClose={() => setOpen(false)} wide>
+        <Modal title={viewing ? 'Consultar venda' : editing ? 'Editar venda' : 'Nova venda'} onClose={() => setOpen(false)} wide>
           <div className="space-y-4">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+            <fieldset disabled={viewing} className="space-y-4 min-w-0">
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Cliente">
                 <select
@@ -777,6 +783,10 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
             </div>
 
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+            </fieldset>
+            {viewing ? (
+              <ViewEditFooter viewing saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={() => {}} />
+            ) : (
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
               <button
@@ -793,6 +803,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                 {saving ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
+            )}
           </div>
         </Modal>
       )}

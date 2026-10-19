@@ -54,6 +54,13 @@ body {
   .td {
     @apply px-5 py-3.5 text-sm text-slate-700;
   }
+  /* Modo consulta: campos travados, mas legíveis */
+  fieldset:disabled .input {
+    @apply bg-slate-50 text-slate-800 cursor-default opacity-100;
+  }
+  fieldset:disabled input[type='file'] {
+    @apply hidden;
+  }
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }

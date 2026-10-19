@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, ShoppingCart, Search, Plane, CheckCircle2, X as X
 import { supabase, type Purchase, type Supplier, type Part, type PurchaseItem, money, BRL, formatDate } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { useSessionState } from '../lib/useSessionState';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone, ViewEditFooter } from './ui';
 
 type ItemRow = { part_id: string; condition: string; quantity: number; unit_cost: number; serial_number: string };
 const inputCls = 'input';
@@ -145,7 +145,11 @@ export default function Purchases() {
     [rows]
   );
 
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
+
   const openNew = () => {
+    setViewing(false);
     const maxNum = items.reduce((max, p) => {
       const m = p.code.match(/(\d+)$/);
       return m ? Math.max(max, parseInt(m[1], 10)) : max;
@@ -162,8 +166,9 @@ export default function Purchases() {
     setRows([{ part_id: '', condition: 'Novo', quantity: 1, unit_cost: 0, serial_number: '' }]);
   };
 
-  const openEdit = async (p: Purchase) => {
+  const openEdit = async (p: Purchase, view = false) => {
     setEditing(p);
+    setViewing(view);
     setForm({
       code: p.code, supplier_id: p.supplier_id ?? '', is_import: p.is_import,
       currency: p.currency, exchange_rate: p.currency === 'BRL' ? 1 : (Number(p.exchange_rate) || 1),
@@ -442,8 +447,8 @@ export default function Purchases() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((p) => (
                   <Fragment key={p.id}>
-                    <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => toggleExpand(p.id)}>
-                      <td className="td text-slate-400">
+                    <tr className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(p, true)}>
+                      <td className="td text-slate-400 hover:text-slate-700" title="Ver itens" onClick={(e) => { e.stopPropagation(); toggleExpand(p.id); }}>
                         {expandedId === p.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                       </td>
                       <td className="td">
@@ -524,9 +529,10 @@ export default function Purchases() {
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar compra' : 'Nova compra'} onClose={closeForm} wide>
+        <Modal title={viewing ? 'Consultar compra' : editing ? 'Editar compra' : 'Nova compra'} onClose={closeForm} wide>
           <div className="space-y-5">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+            <fieldset disabled={viewing} className="space-y-5 min-w-0">
 
             {/* Importação — no topo, pois define moeda/câmbio que ajustam os demais campos */}
             <div className="bg-sky-50 rounded-xl p-4 space-y-4">
@@ -784,7 +790,11 @@ export default function Purchases() {
             </div>
 
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+            </fieldset>
 
+            {viewing ? (
+              <ViewEditFooter viewing saving={saving} onEdit={() => setViewing(false)} onClose={closeForm} onSave={() => {}} />
+            ) : (
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={closeForm}>Cancelar</button>
               <button
@@ -801,6 +811,7 @@ export default function Purchases() {
                 {saving ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
+            )}
           </div>
         </Modal>
       )}

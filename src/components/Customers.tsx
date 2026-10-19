@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Users, Search, Building, KeySquare } from 'lucide-react';
 import { supabase, type Customer } from '../lib/supabase';
-import { Modal, Field, EmptyState, PageHeader, ConfirmDelete } from './ui';
+import { Modal, Field, EmptyState, PageHeader, ConfirmDelete, ViewEditFooter } from './ui';
 import PortalAccess from './PortalAccess';
 
 const empty = {
@@ -28,6 +28,8 @@ export default function Customers({
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [portalFor, setPortalFor] = useState<Customer | null>(null);
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -81,9 +83,10 @@ export default function Customers({
     setCepLoading(false);
   };
 
-  const openNew = () => { setEditing(null); setForm(empty); setError(''); setOpen(true); };
-  const openEdit = (c: Customer) => {
+  const openNew = () => { setEditing(null); setViewing(false); setForm(empty); setError(''); setOpen(true); };
+  const openEdit = (c: Customer, view = false) => {
     setEditing(c);
+    setViewing(view);
     setForm({
       name: c.name, contact_name: c.contact_name ?? '', email: c.email ?? '',
       phone: c.phone ?? '', document: c.document ?? '', city: c.city ?? '',
@@ -165,7 +168,7 @@ export default function Customers({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                  <tr key={c.id} className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(c, true)}>
                     <td className="td">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
@@ -180,7 +183,7 @@ export default function Customers({
                     <td className="td text-slate-600">
                       {[c.city, c.state].filter(Boolean).join(', ') || '—'}
                     </td>
-                    <td className="td">
+                    <td className="td" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <button className="icon-btn" title="Acesso ao Portal do Cliente" onClick={() => setPortalFor(c)}><KeySquare size={15} /></button>
                         <button className="icon-btn" onClick={() => openEdit(c)}><Pencil size={15} /></button>
@@ -196,9 +199,10 @@ export default function Customers({
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar cliente' : 'Novo cliente'} onClose={() => setOpen(false)} wide>
+        <Modal title={viewing ? 'Consultar cliente' : editing ? 'Editar cliente' : 'Novo cliente'} onClose={() => setOpen(false)} wide>
           <div className="space-y-4">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+            <fieldset disabled={viewing} className="space-y-4 min-w-0">
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
               <Field label="Contato"><input className={inputCls} value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} /></Field>
@@ -221,10 +225,8 @@ export default function Customers({
             </div>
             <p className="text-xs text-slate-400 -mt-1">Para emitir boleto, o banco exige CPF/CNPJ, endereço, cidade, UF e CEP do cliente.</p>
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
-            </div>
+            </fieldset>
+            <ViewEditFooter viewing={viewing} saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={save} />
           </div>
         </Modal>
       )}

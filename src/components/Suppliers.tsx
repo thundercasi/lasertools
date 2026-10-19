@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Truck, Search, Globe, ExternalLink, Building2 } from 'lucide-react';
 import { supabase, type Supplier } from '../lib/supabase';
-import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete } from './ui';
+import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ViewEditFooter } from './ui';
 
 const empty = {
   name: '', country: 'Brasil', is_international: false, is_competitor: false,
@@ -40,9 +40,12 @@ export default function Suppliers() {
     );
   }, [items, query]);
 
-  const openNew = () => { setEditing(null); setForm(empty); setError(''); setOpen(true); };
-  const openEdit = (s: Supplier) => {
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
+  const openNew = () => { setEditing(null); setViewing(false); setForm(empty); setError(''); setOpen(true); };
+  const openEdit = (s: Supplier, view = false) => {
     setEditing(s);
+    setViewing(view);
     setForm({
       name: s.name, country: s.country, is_international: s.is_international, is_competitor: s.is_competitor,
       contact_name: s.contact_name ?? '', email: s.email ?? '', phone: s.phone ?? '',
@@ -125,7 +128,7 @@ export default function Suppliers() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-50/50 transition">
+                  <tr key={s.id} className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(s, true)}>
                     <td className="td">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
@@ -151,7 +154,7 @@ export default function Suppliers() {
                         </a>
                       ) : <span className="text-slate-400">—</span>}
                     </td>
-                    <td className="td">
+                    <td className="td" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <button className="icon-btn" onClick={() => openEdit(s)}><Pencil size={15} /></button>
                         <button className="icon-btn hover:text-red-600" onClick={() => setDeleteId(s.id)}><Trash2 size={15} /></button>
@@ -166,8 +169,9 @@ export default function Suppliers() {
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar fornecedor' : 'Novo fornecedor'} onClose={() => setOpen(false)} wide>
+        <Modal title={viewing ? 'Consultar fornecedor' : editing ? 'Editar fornecedor' : 'Novo fornecedor'} onClose={() => setOpen(false)} wide>
           <div className="space-y-4">
+            <fieldset disabled={viewing} className="space-y-4 min-w-0">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
@@ -189,10 +193,8 @@ export default function Suppliers() {
               <input type="checkbox" checked={form.is_competitor} onChange={(e) => setForm({ ...form, is_competitor: e.target.checked })} className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500" />
               <span className="text-sm text-slate-700">Também é concorrente (aparece em Preços da Concorrência)</span>
             </label>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
-            </div>
+            </fieldset>
+            <ViewEditFooter viewing={viewing} saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={save} />
           </div>
         </Modal>
       )}

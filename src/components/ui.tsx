@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Pencil } from 'lucide-react';
 
 export function Modal({
   title, onClose, children, wide,
@@ -175,3 +175,32 @@ export const statusTone = (status: string): 'slate' | 'green' | 'amber' | 'red' 
   if (s.includes('progress') || s.includes('andamento')) return 'blue';
   return 'slate';
 };
+
+// Rodapé dos formulários com modo consulta: em consulta mostra Fechar/Editar,
+// em edição mostra Cancelar/Salvar.
+export function ViewEditFooter({
+  viewing, saving, onEdit, onClose, onSave, saveLabel = 'Salvar',
+}: {
+  viewing: boolean;
+  saving?: boolean;
+  onEdit: () => void;
+  onClose: () => void;
+  onSave: () => void;
+  saveLabel?: string;
+}) {
+  return (
+    <div className="flex justify-end gap-2 pt-2">
+      {viewing ? (
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>Fechar</button>
+          <button type="button" className="btn-primary" onClick={onEdit}><Pencil size={15} /> Editar</button>
+        </>
+      ) : (
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn-primary" disabled={saving} onClick={onSave}>{saving ? 'Salvando...' : saveLabel}</button>
+        </>
+      )}
+    </div>
+  );
+}

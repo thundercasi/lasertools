@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Search, ExternalLink, Users, Building2 } from 'lucide-react';
 import { supabase, type Supplier } from '../lib/supabase';
-import { Modal, Field, EmptyState, PageHeader, ConfirmDelete, Badge } from './ui';
+import { Modal, Field, EmptyState, PageHeader, ConfirmDelete, Badge, ViewEditFooter } from './ui';
 
 const empty = { name: '', website: '', notes: '', is_international: false };
 const inputCls = 'input';
@@ -35,9 +35,12 @@ export default function Competition() {
     return items.filter((c) => c.name.toLowerCase().includes(q));
   }, [items, query]);
 
-  const openNew = () => { setEditing(null); setForm(empty); setError(''); setOpen(true); };
-  const openEdit = (c: Supplier) => {
+  // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
+  const [viewing, setViewing] = useState(false);
+  const openNew = () => { setEditing(null); setViewing(false); setForm(empty); setError(''); setOpen(true); };
+  const openEdit = (c: Supplier, view = false) => {
     setEditing(c);
+    setViewing(view);
     setForm({ name: c.name, website: c.website ?? '', notes: c.notes ?? '', is_international: c.is_international });
     setError(''); setOpen(true);
   };
@@ -105,7 +108,7 @@ export default function Competition() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                  <tr key={c.id} className="hover:bg-slate-50/50 transition cursor-pointer" onClick={() => openEdit(c, true)}>
                     <td className="td font-medium text-slate-900">
                       <div className="flex items-center gap-2">
                         {c.name}
@@ -120,7 +123,7 @@ export default function Competition() {
                       ) : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="td text-slate-600 max-w-xs truncate">{c.notes || '—'}</td>
-                    <td className="td">
+                    <td className="td" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <button className="icon-btn" onClick={() => openEdit(c)}><Pencil size={15} /></button>
                         <button className="icon-btn hover:text-red-600" title="Remover da lista de concorrentes" onClick={() => setRemoveId(c.id)}><Trash2 size={15} /></button>
@@ -135,8 +138,9 @@ export default function Competition() {
       </div>
 
       {open && (
-        <Modal title={editing ? 'Editar concorrente' : 'Novo concorrente'} onClose={() => setOpen(false)}>
+        <Modal title={viewing ? 'Consultar concorrente' : editing ? 'Editar concorrente' : 'Novo concorrente'} onClose={() => setOpen(false)}>
           <div className="space-y-4">
+            <fieldset disabled={viewing} className="space-y-4 min-w-0">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
             <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <Field label="Website"><input className={inputCls} value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="https://" /></Field>
@@ -148,10 +152,8 @@ export default function Competition() {
             <p className="text-xs text-slate-400">
               Esse cadastro é compartilhado com Fornecedores — se um dia você comprar dessa empresa, é só usar o mesmo nome lá, sem duplicar.
             </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
-            </div>
+            </fieldset>
+            <ViewEditFooter viewing={viewing} saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={save} />
           </div>
         </Modal>
       )}
