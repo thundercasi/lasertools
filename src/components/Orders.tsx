@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ClipboardList, Plus, Trash2, Calculator, Printer, Eraser,
 } from 'lucide-react';
+import logo from '../assets/logo-full.png';
 import { supabase, BRL } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
 
 type OrderItem = {
   id: string;
+  code: string;
   description: string;
   qty: number;
   is_import: boolean;
@@ -20,7 +22,7 @@ type OrderItem = {
 };
 
 const newItem = (): OrderItem => ({
-  id: crypto.randomUUID(), description: '', qty: 1, is_import: false, cost_usd: 0, cost_brl: 0, cost_brl_auto: true,
+  id: crypto.randomUUID(), code: '', description: '', qty: 1, is_import: false, cost_usd: 0, cost_brl: 0, cost_brl_auto: true,
 });
 
 const emptyHeader = {
@@ -128,7 +130,7 @@ export default function Orders() {
           profit_margin_percent: Number(data.profit_margin_percent) || 0,
         });
         const loadedItems = ((data.order_items ?? []) as any[]).sort((a, b) => a.position - b.position).map((it) => ({
-          id: it.id, description: it.description, qty: Number(it.qty), is_import: it.is_import,
+          id: it.id, code: it.code ?? '', description: it.description, qty: Number(it.qty), is_import: it.is_import,
           cost_usd: Number(it.cost_usd), cost_brl: Number(it.cost_brl), cost_brl_auto: false,
         }));
         setItems(loadedItems.length > 0 ? loadedItems : [newItem()]);
@@ -234,7 +236,7 @@ export default function Orders() {
       const validItems = it.filter((i) => i.description.trim());
       if (validItems.length > 0) {
         const itemRows = validItems.map((i, idx) => ({
-          order_id: id, position: idx, description: i.description, qty: Number(i.qty) || 0,
+          order_id: id, position: idx, code: i.code.trim() || null, description: i.description, qty: Number(i.qty) || 0,
           is_import: i.is_import, cost_usd: Number(i.cost_usd) || 0, cost_brl: Number(i.cost_brl) || 0,
         }));
         await supabase.from('order_items').insert(itemRows);
@@ -300,24 +302,43 @@ export default function Orders() {
 
   const inputCls = 'input';
 
+  // Gera a proposta e abre a impressão. O título da página vira o nome
+  // sugerido do PDF, no padrão dos arquivos de pedido: "DDMMAA - Proposta - Cliente".
+  const printProposal = () => {
+    setGenerated(true);
+    const [y, m, d] = (header.proposal_date || new Date().toISOString().slice(0, 10)).split('-');
+    const client = header.client_name.trim().replace(/[\\/:*?"<>|]/g, '');
+    const previousTitle = document.title;
+    document.title = `${d}${m}${y.slice(2)} - Proposta${client ? ` - ${client}` : ''}`;
+    const restore = () => { document.title = previousTitle; window.removeEventListener('afterprint', restore); };
+    window.addEventListener('afterprint', restore);
+    // Espera a proposta renderizar antes de abrir a janela de impressão.
+    setTimeout(() => window.print(), 100);
+  };
+
+  const fmtDate = (iso: string) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR') : '—');
+  const printedRows = rows.filter((r) => r.description.trim());
+
   if (loading) {
     return <div className="p-8 text-center text-slate-400 text-sm">Carregando pedido...</div>;
   }
 
   return (
     <div className="space-y-6">
+      <div className="print:hidden">
       <PageHeader
         title="Pedidos"
         subtitle="Simulação de proposta comercial — compartilhada com toda a equipe. Frete (USD) e impostos (R$) rateados proporcionalmente por item"
         action={
           <div className="flex gap-2 print:hidden">
             <button className="btn-secondary" onClick={clearAll}><Eraser size={16} /> Limpar tudo</button>
-            <button className="btn-secondary" onClick={() => window.print()}><Printer size={16} /> Imprimir / Salvar PDF</button>
+            <button className="btn-secondary" onClick={printProposal}><Printer size={16} /> Imprimir / Salvar PDF</button>
             <button className="btn-secondary" onClick={() => setGenerated(true)}><Calculator size={16} /> Calcular &amp; Gerar Pedido</button>
             <button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         }
       />
+      </div>
       {savedAt && (
         <p className="text-xs text-slate-400 -mt-4 print:hidden">
           Última atualização: {new Date(savedAt).toLocaleString('pt-BR')}
@@ -390,6 +411,7 @@ export default function Orders() {
             <table className="w-full min-w-[1100px]">
               <thead>
                 <tr className="border-b border-slate-200">
+                  <th className="th">Código</th>
                   <th className="th">Descrição</th>
                   <th className="th text-center">Import.</th>
                   <th className="th text-right">Qtd</th>
@@ -407,6 +429,7 @@ export default function Orders() {
               <tbody className="divide-y divide-slate-100">
                 {rows.map((r) => (
                   <tr key={r.id}>
+                    <td className="td px-2 w-32"><input className={inputCls} placeholder="ex.: SP00614" value={r.code} onChange={(e) => updateItem(r.id, { code: e.target.value })} /></td>
                     <td className="td"><input className={inputCls} value={r.description} onChange={(e) => updateItem(r.id, { description: e.target.value })} /></td>
                     <td className="td px-2 text-center">
                       <input
@@ -438,7 +461,7 @@ export default function Orders() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-200 font-bold text-slate-900">
-                  <td className="td" colSpan={7}>TOTAL GERAL</td>
+                  <td className="td" colSpan={8}>TOTAL GERAL</td>
                   <td className="td text-right">{BRL(totalCusto)}</td>
                   <td className="td text-right">{BRL(totalVendaBruto)}</td>
                   <td className="td text-right">{BRL(totalVendaBruto)}</td>
@@ -496,86 +519,109 @@ export default function Orders() {
         </div>
       </div>
 
-      {/* Proposta gerada / imprimível */}
+      {/* Proposta gerada / imprimível — layout do modelo de proposta comercial */}
       {generated && (
-        <div className="card p-8 print:shadow-none print:border-0" id="proposal-print">
-          <div className="flex items-start justify-between border-b border-slate-200 pb-4 mb-6">
+        <div className="card p-10 print:p-0 print:shadow-none print:border-0 text-slate-900" id="proposal-print">
+          {/* Cabeçalho */}
+          <div className="flex items-start justify-between gap-6 mb-6">
             <div>
-              <div className="text-lg font-bold text-slate-900">LASER TOOLS</div>
-              <div className="text-xs text-slate-500">Distribuidora de Peças</div>
+              <h1 className="text-3xl font-black tracking-[0.12em] uppercase">Proposta Comercial</h1>
+              <div className="text-lg font-bold mt-1">LASER TOOLS | Distribuidora de Peças</div>
             </div>
-            <div className="text-right text-sm text-slate-500">
-              <div className="font-semibold text-slate-800">PROPOSTA COMERCIAL</div>
-              <div>Data: {header.proposal_date ? new Date(header.proposal_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</div>
+            <div className="flex flex-col items-end gap-3 shrink-0">
+              <div className="text-sm font-bold">Data: {fmtDate(header.proposal_date)}</div>
+              <img src={logo} alt="Laser Tools Components" className="w-28 object-contain" />
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-6 mb-6 text-sm">
-            <div>
-              <div className="text-xs font-bold text-slate-400 uppercase mb-1">Emitente</div>
-              <div className="font-semibold text-slate-800">LASER TOOLS</div>
-              <div className="text-slate-500">Vendedor: {header.seller || '—'}</div>
+          {/* Emitente / Cliente */}
+          <div className="grid grid-cols-2 gap-5 mb-6 text-sm">
+            <div className="border border-slate-800 rounded p-4 break-inside-avoid">
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Emitente</div>
+              <div className="font-bold">LASER TOOLS</div>
+              <div>Vendedor: {header.seller || '—'}</div>
             </div>
-            <div>
-              <div className="text-xs font-bold text-slate-400 uppercase mb-1">Cliente</div>
-              <div className="font-semibold text-slate-800">{header.client_name || '—'}</div>
-              <div className="text-slate-500">CNPJ/CPF: {header.client_doc || '—'}</div>
-              <div className="text-slate-500">{header.address}{header.address && (header.city_uf || header.cep) ? ' — ' : ''}{header.city_uf} {header.cep}</div>
+            <div className="border border-slate-800 rounded p-4 break-inside-avoid">
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Cliente</div>
+              <div className="font-bold">{header.client_name || '—'}</div>
+              {header.client_doc && <div>{header.client_doc.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF'}: {header.client_doc}</div>}
+              {header.address && <div className="mt-1">{header.address}</div>}
+              {(header.city_uf || header.cep) && (
+                <div className="mt-1">{[header.city_uf, header.cep && `CEP: ${header.cep}`].filter(Boolean).join(' | ')}</div>
+              )}
             </div>
           </div>
 
-          <div className="text-xs font-bold text-slate-400 uppercase mb-2">Detalhes do Produto</div>
-          <table className="w-full mb-6 text-sm">
+          {/* Itens */}
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 px-2">Detalhes do Produto</div>
+          <table className="w-full text-sm mb-8">
             <thead>
-              <tr className="border-b border-slate-200">
-                <th className="th">Descrição do Item</th>
-                <th className="th text-right">Qtd</th>
-                <th className="th text-right">V. Unitário</th>
-                <th className="th text-right">V. Total</th>
+              <tr className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+                <th className="text-left font-semibold px-2 py-2 w-28">Código</th>
+                <th className="text-left font-semibold px-2 py-2">Descrição do Item</th>
+                <th className="text-center font-semibold px-2 py-2 w-14">Qtd</th>
+                <th className="text-right font-semibold px-2 py-2 w-36">V. Unitário</th>
+                <th className="text-right font-semibold px-2 py-2 w-36">V. Total</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.filter((r) => r.description).map((r) => (
-                <tr key={r.id}>
-                  <td className="td">{r.description || '—'}</td>
-                  <td className="td text-right">{r.qty}</td>
-                  <td className="td text-right">{BRL(r.precoVenda / (r.qty || 1))}</td>
-                  <td className="td text-right">{BRL(r.precoVenda)}</td>
+            <tbody>
+              {printedRows.map((r, idx) => (
+                <tr key={r.id} className={`break-inside-avoid ${idx === printedRows.length - 1 ? 'border-b-2 border-slate-900' : 'border-b border-slate-300'}`}>
+                  <td className="px-2 py-2.5">{r.code || '—'}</td>
+                  <td className="px-2 py-2.5">{r.description}</td>
+                  <td className="px-2 py-2.5 text-center">{r.qty}</td>
+                  <td className="px-2 py-2.5 text-right whitespace-nowrap">{BRL(r.precoVenda / (r.qty || 1))}</td>
+                  <td className="px-2 py-2.5 text-right whitespace-nowrap">{BRL(r.precoVenda)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               {discountValue > 0 && (
                 <tr>
-                  <td className="td text-right text-slate-500" colSpan={3}>Desconto</td>
-                  <td className="td text-right text-red-600">- {BRL(discountValue)}</td>
+                  <td colSpan={3}></td>
+                  <td className="px-2 pt-3 text-right">Subtotal</td>
+                  <td className="px-2 pt-3 text-right whitespace-nowrap">{BRL(totalVendaBruto)}</td>
                 </tr>
               )}
-              <tr className="border-t-2 border-slate-200 font-bold text-slate-900">
-                <td className="td" colSpan={3}>TOTAL GERAL</td>
-                <td className="td text-right">{BRL(totalVendaFinal)}</td>
+              {discountValue > 0 && (
+                <tr>
+                  <td colSpan={3}></td>
+                  <td className="px-2 pt-1 text-right">Desconto</td>
+                  <td className="px-2 pt-1 text-right whitespace-nowrap">- {BRL(discountValue)}</td>
+                </tr>
+              )}
+              <tr className="border-b-2 border-slate-900">
+                <td colSpan={3}></td>
+                <td className="px-2 py-3 text-right font-bold text-base">TOTAL GERAL</td>
+                <td className="px-2 py-3 text-right font-bold text-base whitespace-nowrap">{BRL(totalVendaFinal)}</td>
               </tr>
             </tfoot>
           </table>
 
-          <div className="text-xs font-bold text-slate-400 uppercase mb-2">Condições Comerciais e Termos</div>
-          <div className="grid sm:grid-cols-2 gap-2 text-sm text-slate-600 mb-6">
-            <div>Prazo de Entrega: {terms.delivery_time || '—'}</div>
-            <div>Condições de Pgto: {terms.payment_terms || '—'}</div>
-            <div>Garantia: {terms.warranty || '—'}</div>
-            <div>Val. Proposta: {terms.proposal_validity || '—'}</div>
+          {/* Condições */}
+          <div className="break-inside-avoid">
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3 px-2">Condições Comerciais e Termos</div>
+            <div className="grid grid-cols-[150px_1fr] gap-x-4 gap-y-1.5 text-sm mb-5">
+              <div className="font-bold">Prazo de Entrega:</div><div>{terms.delivery_time || '—'}</div>
+              <div className="font-bold">Condições de Pgto:</div><div>{terms.payment_terms || '—'}</div>
+              <div className="font-bold">Garantia:</div><div>{terms.warranty || '—'}</div>
+              <div className="font-bold">Val. Proposta:</div><div>{terms.proposal_validity || '—'}</div>
+            </div>
           </div>
 
           {terms.notes && (
-            <div className="mb-6">
-              <div className="text-xs font-bold text-slate-400 uppercase mb-2">Observações Adicionais</div>
-              <p className="text-sm text-slate-600 whitespace-pre-line">{terms.notes}</p>
+            <div className="break-inside-avoid mb-10">
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 px-2">Observações Adicionais</div>
+              <div className="border border-slate-800 rounded px-4 py-3 text-sm whitespace-pre-line leading-snug">{terms.notes}</div>
             </div>
           )}
 
-          <div className="border-t border-slate-200 pt-4 text-sm text-slate-500">
-            <div className="font-semibold text-slate-700">{header.seller || 'Vendas'}</div>
-            <div>Vendas | LASER TOOLS</div>
+          {/* Assinatura */}
+          <div className="flex justify-center break-inside-avoid mt-12">
+            <div className="w-80 border-t-2 border-slate-900 pt-2 text-center text-sm">
+              <div className="font-bold">{header.seller || 'Vendas'}</div>
+              <div>Vendas | LASER TOOLS</div>
+            </div>
           </div>
         </div>
       )}
