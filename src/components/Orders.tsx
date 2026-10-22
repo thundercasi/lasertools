@@ -102,9 +102,17 @@ function NumField({
 
 // Percent field with a visible label showing the current value next to it.
 function PctField({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
+  // 100% ou mais quase sempre é erro de digitação (ex.: 250 em vez de 2,50).
+  const suspicious = value >= 100;
   return (
     <Field label={label} hint={value ? `atual: ${value}%` : undefined}>
-      <NumField value={value} onChange={onChange} step="0.01" className={disabled ? 'input opacity-60' : 'input'} />
+      <NumField
+        value={value}
+        onChange={onChange}
+        step="0.01"
+        className={`input ${disabled ? 'opacity-60' : ''} ${suspicious ? 'border-red-400 bg-red-50 text-red-700' : ''}`}
+      />
+      {suspicious && <p className="text-xs text-red-600 mt-1">Valor muito alto — confira (ex.: 2,5 e não 250).</p>}
     </Field>
   );
 }
@@ -356,9 +364,11 @@ export default function Orders() {
     const taxRateado = iofBRL + importTaxBRL;
     const custoFinal = rowCostBRL + freightBRL + taxRateado;
     const precoVenda = denom > 0 ? custoFinal / denom : custoFinal;
-    const lucroLiq = precoVenda * marginPct;
+    // Lucro real: preço − custo − deduções sobre o preço. Com denom > 0 é
+    // igual a preço × margem; com denom ≤ 0 mostra o prejuízo de verdade.
+    const lucroLiq = precoVenda - custoFinal - precoVenda * otherDeductionsPct;
     return { ...i, rowCostUSD, rowCostBRL, freightBRL, taxRateado, custoFinal, precoVenda, lucroLiq };
-  }), [items, rates, totalCostUSD, denom, marginPct]);
+  }), [items, rates, totalCostUSD, denom, otherDeductionsPct]);
 
   const totalCusto = rows.reduce((s, r) => s + r.custoFinal, 0);
   const totalVendaBruto = rows.reduce((s, r) => s + r.precoVenda, 0);
@@ -549,7 +559,7 @@ export default function Orders() {
                     <td className="td text-right font-medium text-slate-800">{BRL(r.custoFinal)}</td>
                     <td className="td text-right font-semibold text-slate-900">{BRL(r.precoVenda)}</td>
                     <td className="td text-right font-semibold text-slate-900">{BRL(r.precoVenda)}</td>
-                    <td className="td text-right text-emerald-600 font-medium">{BRL(r.lucroLiq)}</td>
+                    <td className={`td text-right font-medium ${r.lucroLiq < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{BRL(r.lucroLiq)}</td>
                     <td className="td"><button className="icon-btn" onClick={() => removeItem(r.id)}><Trash2 size={15} /></button></td>
                   </tr>
                 ))}
@@ -560,12 +570,18 @@ export default function Orders() {
                   <td className="td text-right">{BRL(totalCusto)}</td>
                   <td className="td text-right">{BRL(totalVendaBruto)}</td>
                   <td className="td text-right">{BRL(totalVendaBruto)}</td>
-                  <td className="td text-right text-emerald-700">{BRL(totalLucro)}</td>
+                  <td className={`td text-right ${totalLucro < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{BRL(totalLucro)}</td>
                   <td className="td"></td>
                 </tr>
               </tfoot>
             </table>
           </div>
+          {denom <= 0 && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mt-4">
+              ⚠️ O preço de venda não pode ser calculado: margem + deduções somam {Math.round((otherDeductionsPct + marginPct) * 1000) / 10}% (precisa ficar abaixo de 100%).
+              Os preços abaixo estão iguais ao custo e o lucro mostra o prejuízo. Confira os percentuais no quadro 2.
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
             <div className="bg-slate-50 rounded-xl p-4">
               <div className="text-xs font-semibold text-slate-500 uppercase">Total de Custo</div>
@@ -579,9 +595,9 @@ export default function Orders() {
               <div className="text-xs font-semibold text-slate-500 uppercase">Total Deduções</div>
               <div className="text-lg font-bold text-slate-900 mt-1">{BRL(totalDeducoes)}</div>
             </div>
-            <div className="bg-emerald-50 rounded-xl p-4">
-              <div className="text-xs font-semibold text-emerald-600 uppercase">Lucro Líquido Total</div>
-              <div className="text-lg font-bold text-emerald-700 mt-1">{BRL(totalLucro)}</div>
+            <div className={`rounded-xl p-4 ${totalLucro < 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+              <div className={`text-xs font-semibold uppercase ${totalLucro < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{totalLucro < 0 ? 'Prejuízo Total' : 'Lucro Líquido Total'}</div>
+              <div className={`text-lg font-bold mt-1 ${totalLucro < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{BRL(totalLucro)}</div>
             </div>
           </div>
         </div>
