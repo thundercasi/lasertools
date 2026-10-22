@@ -191,7 +191,8 @@ export default function Orders() {
         });
         const loadedItems = ((data.order_items ?? []) as any[]).sort((a, b) => a.position - b.position).map((it) => ({
           id: it.id, code: it.code ?? '', description: it.description, qty: Number(it.qty), is_import: it.is_import,
-          cost_usd: Number(it.cost_usd), cost_brl: Number(it.cost_brl), cost_brl_auto: false,
+          // Itens com USD continuam acompanhando a cotação; os sem USD têm R$ digitado.
+          cost_usd: Number(it.cost_usd), cost_brl: Number(it.cost_brl), cost_brl_auto: Number(it.cost_usd) > 0,
         }));
         setItems(loadedItems.length > 0 ? loadedItems : [newItem()]);
         setTerms({
@@ -247,15 +248,25 @@ export default function Orders() {
     setItems((prev) => prev.map((i) => {
       if (i.id !== id) return i;
       const nowImport = i.is_import || v > 0;
-      const autoFlag = i.cost_brl_auto ?? true;
-      if (autoFlag && v > 0 && rate) {
+      // Digitar em USD sempre recalcula o R$ (USD é a origem do custo de importação).
+      if (v > 0 && rate) {
         return { ...i, cost_usd: v, is_import: nowImport, cost_brl: Number((v * rate).toFixed(2)), cost_brl_auto: true };
       }
-      if (autoFlag && v === 0) {
-        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: 0, cost_brl_auto: true };
+      // Apagou o USD: zera o R$ só se ele tinha vindo da conversão.
+      if (v === 0 && i.cost_brl_auto) {
+        return { ...i, cost_usd: v, is_import: nowImport, cost_brl: 0 };
       }
-      return { ...i, cost_usd: v, is_import: nowImport, cost_brl_auto: autoFlag };
+      return { ...i, cost_usd: v, is_import: nowImport };
     }));
+  };
+
+  // Mudou a cotação: reconverte os itens cujo R$ veio do USD.
+  const setExchangeRate = (v: number) => {
+    setRates((r) => ({ ...r, exchange_rate: v }));
+    if (!v) return;
+    setItems((prev) => prev.map((i) => (
+      i.cost_brl_auto && Number(i.cost_usd) > 0 ? { ...i, cost_brl: Number((i.cost_usd * v).toFixed(2)) } : i
+    )));
   };
 
   const updateItemCostBrl = (id: string, v: number) =>
@@ -450,7 +461,7 @@ export default function Orders() {
           <h3 className="text-sm font-bold text-slate-800 mb-4">💱 2. Câmbio, Impostos, Frete e Margens</h3>
           <div className="grid sm:grid-cols-3 gap-4">
             <Field label="Cotação do Dólar (R$)">
-              <NumField value={rates.exchange_rate} onChange={(v) => setRates({ ...rates, exchange_rate: v })} step="0.0001" className={inputCls} />
+              <NumField value={rates.exchange_rate} onChange={setExchangeRate} step="0.0001" className={inputCls} />
             </Field>
             <Field label="Frete Internacional (USD)" hint="rateio proporcional">
               <NumField value={rates.freight_usd} onChange={(v) => setRates({ ...rates, freight_usd: v })} step="0.01" className={inputCls} />
