@@ -3,7 +3,7 @@ import {
   ClipboardList, Plus, Trash2, Calculator, Printer, Eraser,
 } from 'lucide-react';
 import logo from '../assets/logo-full.png';
-import { supabase, BRL } from '../lib/supabase';
+import { supabase, BRL, type Customer, type Part } from '../lib/supabase';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
 
@@ -58,6 +58,19 @@ const emptyTerms = {
 
 const num = (v: number) => (isFinite(v) ? v : 0);
 
+// 34188970000184 → 34.188.970/0001-84 · 12345678901 → 123.456.789-01
+const formatDoc = (raw: string | null) => {
+  const d = (raw ?? '').replace(/\D/g, '');
+  if (d.length === 14) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  if (d.length === 11) return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+  return raw ?? '';
+};
+// 76907632 → 76907-632
+const formatCep = (raw: string | null) => {
+  const d = (raw ?? '').replace(/\D/g, '');
+  return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : raw ?? '';
+};
+
 // This screen has exactly ONE shared draft, stored as a single row (not
 // a list — every user reads and writes the same "current pedido"). This
 // fixed code identifies that row; a real sequence isn't needed since
@@ -108,6 +121,53 @@ export default function Orders() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [defaultsLoaded, setDefaultsLoaded] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [parts, setParts] = useState<Part[]>([]);
+  const [customerPick, setCustomerPick] = useState('');
+
+  // Cadastros para preencher cliente e itens com um clique (os campos
+  // continuam editáveis depois de preenchidos).
+  useEffect(() => {
+    (async () => {
+      const [{ data: c }, { data: p }] = await Promise.all([
+        supabase.from('customers').select('*').order('name'),
+        supabase.from('parts').select('*').order('name'),
+      ]);
+      setCustomers((c as Customer[]) ?? []);
+      setParts((p as Part[]) ?? []);
+    })();
+  }, []);
+
+  const pickCustomer = (id: string) => {
+    setCustomerPick(id);
+    const c = customers.find((x) => x.id === id);
+    if (!c) return;
+    const street = [c.address, c.address_number].filter(Boolean).join(', ');
+    const address = [street, c.address_complement, c.neighborhood].filter(Boolean).join(' - ');
+    const city = [c.city, c.state].filter(Boolean).join('-');
+    setHeader((h) => ({
+      ...h,
+      client_name: c.name,
+      client_doc: formatDoc(c.document),
+      address,
+      city_uf: city,
+      cep: formatCep(c.cep),
+    }));
+  };
+
+  const pickPart = (itemId: string, partId: string) => {
+    const p = parts.find((x) => x.id === partId);
+    if (!p) return;
+    const brand = p.brand?.trim();
+    const cost = Number(p.unit_cost) || 0;
+    setItems((prev) => prev.map((i) => (i.id !== itemId ? i : {
+      ...i,
+      code: p.part_number || p.sku,
+      description: brand ? `${p.name} - ${brand}` : p.name,
+      // Custo médio do cadastro como ponto de partida (R$); pode ser ajustado.
+      ...(cost > 0 ? { cost_brl: cost, cost_brl_auto: false } : {}),
+    })));
+  };
 
   // Loads the single shared draft — whatever the last person saved is
   // what everyone sees when they open this screen. If it doesn't exist
@@ -259,6 +319,7 @@ export default function Orders() {
     setItems(it);
     setTerms(t);
     setGenerated(false);
+    setCustomerPick('');
     persist(h, r, it, t);
   };
 
@@ -351,6 +412,14 @@ export default function Orders() {
           <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
             <ClipboardList size={16} className="text-sky-500" /> 1. Dados do Pedido e Cliente
           </h3>
+          <div className="mb-4 sm:w-2/3">
+            <Field label="Cliente do cadastro" hint="preenche nome, documento e endereço — dá para ajustar depois">
+              <select className={inputCls} value={customerPick} onChange={(e) => pickCustomer(e.target.value)}>
+                <option value="">— Selecionar cliente cadastrado (ou digite abaixo) —</option>
+                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </Field>
+          </div>
           <div className="grid sm:grid-cols-3 gap-4">
             <Field label="Data da proposta">
               <input type="date" className={inputCls} value={header.proposal_date} onChange={(e) => setHeader({ ...header, proposal_date: e.target.value })} />
@@ -430,7 +499,22 @@ export default function Orders() {
                 {rows.map((r) => (
                   <tr key={r.id}>
                     <td className="td px-2 w-32"><input className={inputCls} placeholder="ex.: SP00614" value={r.code} onChange={(e) => updateItem(r.id, { code: e.target.value })} /></td>
-                    <td className="td"><input className={inputCls} value={r.description} onChange={(e) => updateItem(r.id, { description: e.target.value })} /></td>
+                    <td className="td min-w-[260px]">
+                      <select
+                        className={`${inputCls} text-xs py-1.5 mb-1.5 text-slate-500`}
+                        value=""
+                        onChange={(e) => pickPart(r.id, e.target.value)}
+                        title="Preenche código, descrição e custo a partir do cadastro de peças"
+                      >
+                        <option value="">📦 Selecionar peça do cadastro…</option>
+                        {parts.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}{p.brand?.trim() ? ` — ${p.brand.trim()}` : ''}{p.part_number ? ` (${p.part_number})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <input className={inputCls} placeholder="Descrição" value={r.description} onChange={(e) => updateItem(r.id, { description: e.target.value })} />
+                    </td>
                     <td className="td px-2 text-center">
                       <input
                         type="checkbox"
