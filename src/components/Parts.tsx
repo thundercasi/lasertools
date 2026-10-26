@@ -84,12 +84,14 @@ export default function Parts() {
     const rows = stock.filter((s) => s.part_id === partId);
     const byCond: Record<string, number> = {};
     let total = 0;
+    let incoming = 0;
     for (const r of rows) {
       const n = Number(r.disponivel) || 0;
       if (n !== 0) byCond[r.condition] = n;
       total += n;
+      incoming += Number(r.a_caminho) || 0;
     }
-    return { byCond, total };
+    return { byCond, total, incoming };
   };
 
   useEffect(() => { load(); }, []);
@@ -461,6 +463,9 @@ export default function Parts() {
                           <div className="text-xs font-normal text-slate-400">
                             {Object.entries(st.byCond).map(([c, n]) => `${n} ${c.toLowerCase()}`).join(' · ')}
                           </div>
+                        )}
+                        {st.incoming > 0 && (
+                          <div className="text-xs font-normal text-sky-600">+{st.incoming} a caminho</div>
                         )}
                       </td>
                       <td className="td text-right">

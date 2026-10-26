@@ -308,6 +308,8 @@ export type PartStock = {
   vendido: number;
   em_manutencao: number;
   disponivel: number;
+  // Compras ainda não concluídas (não contam no disponível).
+  a_caminho: number;
 };
 
 export type Competitor = {
