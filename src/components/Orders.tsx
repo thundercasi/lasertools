@@ -77,6 +77,16 @@ const formatCep = (raw: string | null) => {
 // there's only ever one.
 const SHARED_CODE = 'PEDIDO-ATUAL';
 
+// Dados do emitente impressos na proposta (cartão CNPJ de 12/08/2026).
+const COMPANY = {
+  razaoSocial: 'LASER TOOLS COMPONENTES LTDA',
+  cnpj: '68.538.970/0001-89',
+  endereco: 'R. José Silvino Garcia, 134 - Quadra A9, Loja 17 - Horto Florestal',
+  cidade: 'Sorocaba-SP',
+  cep: '18074-760',
+  telefone: '(11) 6117-4413',
+};
+
 // Renders a number input that shows blank instead of a leading "0" while
 // the field is empty/zero, so typing doesn't produce "05", "010" etc.
 function NumField({
@@ -649,8 +659,11 @@ export default function Orders() {
           <div className="grid grid-cols-2 gap-5 mb-6 text-sm">
             <div className="border border-slate-800 rounded p-4 break-inside-avoid">
               <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Emitente</div>
-              <div className="font-bold">LASER TOOLS</div>
-              <div>Vendedor: {header.seller || '—'}</div>
+              <div className="font-bold">{COMPANY.razaoSocial}</div>
+              <div>CNPJ: {COMPANY.cnpj} · Tel.: {COMPANY.telefone}</div>
+              <div className="mt-1">{COMPANY.endereco}</div>
+              <div>{COMPANY.cidade} | CEP: {COMPANY.cep}</div>
+              <div className="mt-1">Vendedor: {header.seller || '—'}</div>
             </div>
             <div className="border border-slate-800 rounded p-4 break-inside-avoid">
               <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Cliente</div>
@@ -721,14 +734,14 @@ export default function Orders() {
           </div>
 
           {terms.notes && (
-            <div className="break-inside-avoid mb-10">
+            <div className="break-inside-avoid mb-6">
               <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 px-2">Observações Adicionais</div>
               <div className="border border-slate-800 rounded px-4 py-3 text-sm whitespace-pre-line leading-snug">{terms.notes}</div>
             </div>
           )}
 
           {/* Assinatura */}
-          <div className="flex justify-center break-inside-avoid mt-12">
+          <div className="flex justify-center break-inside-avoid mt-10">
             <div className="w-80 border-t-2 border-slate-900 pt-2 text-center text-sm">
               <div className="font-bold">{header.seller || 'Vendas'}</div>
               <div>Vendas | LASER TOOLS</div>
