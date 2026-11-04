@@ -69,6 +69,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     }
   };
   const [files, setFiles] = useState<SaleFile[]>([]);
+  const [fileError, setFileError] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useSessionState<SaleRow[]>('sale:rows', [{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
@@ -181,6 +182,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     setForm({ ...emptyForm, sale_date: today, first_installment_date: today, card_fee_percent: lastCardFee });
     setRows([{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
     setFiles([]);
+    setFileError('');
     setError(''); setOpen(true);
   };
 
@@ -200,6 +202,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     });
     const { data: fileData } = await supabase.from('sale_files').select('*').eq('sale_id', s.id).order('created_at');
     setFiles((fileData as SaleFile[]) ?? []);
+    setFileError('');
     const { data: si } = await supabase.from('sale_items').select('*').eq('sale_id', s.id);
     const itemRows = ((si as SaleItem[]) ?? []).map((r) => ({
       part_id: r.part_id,
@@ -214,12 +217,14 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
 
   const uploadFile = async (file: File) => {
     if (!editing) return;
+    if (file.size > 20 * 1024 * 1024) { setFileError(`"${file.name}" é maior que 20 MB.`); return; }
+    setFileError('');
     setUploading(true);
     try {
       const ext = file.name.split('.').pop();
       const path = `${editing.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: upErr } = await supabase.storage.from('sale-files').upload(path, file);
-      if (upErr) { setError(upErr.message); return; }
+      if (upErr) { setFileError(`Falha ao enviar "${file.name}": ${upErr.message}`); return; }
       const { data: pubData } = supabase.storage.from('sale-files').getPublicUrl(path);
       const { data: rec, error: dbErr } = await supabase.from('sale_files').insert({
         sale_id: editing.id,
@@ -228,13 +233,24 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
         content_type: file.type,
         file_size: file.size,
       }).select('*').single();
-      if (dbErr) { setError(dbErr.message); return; }
+      if (dbErr) { setFileError(`Falha ao registrar "${file.name}": ${dbErr.message}`); return; }
       setFiles((prev) => [...prev, rec as SaleFile]);
     } catch (err: any) {
-      setError(err?.message ?? 'Falha ao enviar arquivo.');
+      setFileError(err?.message ?? 'Falha ao enviar arquivo.');
     } finally {
       setUploading(false);
     }
+  };
+
+  // O depósito é privado: abre o anexo por um link temporário (5 min).
+  // A janela é aberta antes da chamada para o navegador não bloquear o pop-up.
+  const openFile = async (f: SaleFile) => {
+    const path = f.file_url.split('/sale-files/')[1];
+    if (!path) return;
+    const win = window.open('', '_blank');
+    const { data, error: e } = await supabase.storage.from('sale-files').createSignedUrl(decodeURIComponent(path), 300);
+    if (e || !data?.signedUrl) { win?.close(); setFileError(`Não foi possível abrir "${f.file_name}": ${e?.message ?? 'link indisponível'}`); return; }
+    if (win) win.location.href = data.signedUrl; else window.location.href = data.signedUrl;
   };
 
   const removeFile = async (f: SaleFile) => {
@@ -760,12 +776,13 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
               {!editing && (
                 <p className="text-xs text-slate-400">Salve a venda primeiro para poder anexar arquivos.</p>
               )}
+              {fileError && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-2 break-words">{fileError}</div>}
               {files.length > 0 ? (
                 <div className="space-y-2">
                   {files.map((f) => (
                     <div key={f.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
                       <FileText size={16} className="text-slate-400 shrink-0" />
-                      <a href={f.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-700 hover:text-sky-600 hover:underline truncate flex items-center gap-1">
+                      <a href="#" onClick={(e) => { e.preventDefault(); openFile(f); }} className="text-sm text-slate-700 hover:text-sky-600 hover:underline truncate flex items-center gap-1">
                         {f.file_name} <ExternalLink size={11} className="inline" />
                       </a>
                       <span className="text-xs text-slate-400 ml-auto shrink-0">
