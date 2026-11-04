@@ -74,19 +74,27 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useSessionState<SaleRow[]>('sale:rows', [{ part_id: '', condition: 'Novo', part_unit_id: '', quantity: 1, unit_price: 0, serial_number: '' }]);
   const [serialsByPart, setSerialsByPart] = useState<Map<string, string[]>>(new Map());
+  // Preço e custo de referência por peça+condição (cadastro da peça).
+  const [condRef, setCondRef] = useState<Map<string, { price: number; cost: number }>>(new Map());
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const [cRes, pRes, piRes, siRes, unitsRes, stockRes] = await Promise.all([
+      const [cRes, pRes, piRes, siRes, unitsRes, stockRes, cpRes] = await Promise.all([
         supabase.from('customers').select('*').order('name'),
         supabase.from('parts').select('*').order('name'),
         supabase.from('purchase_items').select('part_id, serial_number').not('serial_number', 'is', null).neq('serial_number', ''),
         supabase.from('sale_items').select('sale_id, unit_cost, quantity'),
         supabase.from('part_units').select('*').order('code'),
         supabase.from('part_stock').select('*'),
+        supabase.from('part_condition_prices').select('part_id, condition, unit_price, unit_cost'),
       ]);
+      const refMap = new Map<string, { price: number; cost: number }>();
+      for (const r of (cpRes.data as any[]) ?? []) {
+        refMap.set(`${r.part_id}|${r.condition}`, { price: Number(r.unit_price) || 0, cost: Number(r.unit_cost) || 0 });
+      }
+      setCondRef(refMap);
       setCustomers((cRes.data as Customer[]) ?? []);
       const allP = (pRes.data as Part[]) ?? [];
       setAllParts(allP);
@@ -334,8 +342,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
           const part = allParts.find((p) => p.id === r.part_id);
           // A tracked part's real cost is the cost of the exact exemplar
           // being sold — not the catalog average across all exemplars.
-          const unit = r.part_unit_id ? availableUnits.find((u) => u.id === r.part_unit_id) : null;
-          const unitCost = unit ? Number(unit.unit_cost) : (part ? Number(part.unit_cost) : 0);
+          const unitCost = part ? unitCostOf(r) : 0;
           const { error: ie2 } = await supabase.from('sale_items').insert({
             sale_id: saleId, part_id: r.part_id, quantity: r.quantity,
             condition: r.condition || 'Novo',
@@ -380,14 +387,30 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
 
   const statusLabel = (s: string) => s;
 
+  // Preço sugerido da condição; sem preço cadastrado para Usado, fica 0 para
+  // não herdar o preço de Novo.
+  const priceOf = (partId: string, cond: string) => {
+    const ref = condRef.get(`${partId}|${cond}`);
+    if (ref && ref.price > 0) return ref.price;
+    const p = allParts.find((x) => x.id === partId);
+    return cond === 'Novo' && p ? Number(p.unit_price) || 0 : 0;
+  };
+  // Custo da linha: o da unidade escolhida; senão o custo cadastrado da
+  // condição; senão o custo médio da peça.
+  const unitCostOf = (r: SaleRow) => {
+    const unit = r.part_unit_id ? availableUnits.find((u) => u.id === r.part_unit_id) : null;
+    if (unit) return Number(unit.unit_cost) || 0;
+    const ref = condRef.get(`${r.part_id}|${r.condition}`);
+    if (ref && ref.cost > 0) return ref.cost;
+    const p = allParts.find((x) => x.id === r.part_id);
+    return p ? Number(p.unit_cost) || 0 : 0;
+  };
+
   const netCalc = () => {
     const t = computedTotal;
     const fee = Number(form.delivery_fee) || 0;
     const cost = Number(form.delivery_cost) || 0;
-    const totalCost = rows.reduce((s, r) => {
-      const p = allParts.find((x) => x.id === r.part_id);
-      return s + (p ? Number(p.unit_cost) * r.quantity : 0);
-    }, 0);
+    const totalCost = rows.reduce((s, r) => s + (r.part_id ? unitCostOf(r) * r.quantity : 0), 0);
     const ded = t * (Number(form.nf_tax) + Number(form.nf_fee) + Number(form.salesperson_commission) + Number(form.card_fee_percent)) / 100;
     return { gross: t + fee, ded, cost, totalCost, net: t + fee - ded - cost - totalCost };
   };
@@ -605,8 +628,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                         className={`${inputCls} col-span-3`}
                         value={r.part_id}
                         onChange={(e) => {
-                          const p = allParts.find((x) => x.id === e.target.value);
-                          updateRow(i, { part_id: e.target.value, unit_price: p ? Number(p.unit_price) : 0, serial_number: '', part_unit_id: '' });
+                          updateRow(i, { part_id: e.target.value, unit_price: e.target.value ? priceOf(e.target.value, r.condition) : 0, serial_number: '', part_unit_id: '' });
                         }}
                       >
                         <option value="">— Selecione —</option>
@@ -617,7 +639,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                       <select
                         className={`${inputCls} col-span-2 text-xs`}
                         value={r.condition}
-                        onChange={(e) => updateRow(i, { condition: e.target.value, part_unit_id: '' })}
+                        onChange={(e) => updateRow(i, { condition: e.target.value, part_unit_id: '', ...(r.part_id ? { unit_price: priceOf(r.part_id, e.target.value) } : {}) })}
                       >
                         <option value="Novo">Novo ({Number(stockByCondition.find((s) => s.part_id === r.part_id && s.condition === 'Novo')?.disponivel ?? 0)})</option>
                         <option value="Usado">Usado ({Number(stockByCondition.find((s) => s.part_id === r.part_id && s.condition === 'Usado')?.disponivel ?? 0)})</option>
@@ -674,10 +696,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                 <p className="text-xs text-amber-600 mt-2">Nenhuma peça em estoque. Registre compras para ter peças disponíveis.</p>
               )}
               {computedTotal > 0 && (() => {
-                const totalCost = rows.reduce((s, r) => {
-                  const p = allParts.find((x) => x.id === r.part_id);
-                  return s + (p ? Number(p.unit_cost) * r.quantity : 0);
-                }, 0);
+                const totalCost = rows.reduce((s, r) => s + (r.part_id ? unitCostOf(r) * r.quantity : 0), 0);
                 const revenue = computedTotal;
                 const margin = revenue - totalCost;
                 const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
