@@ -128,6 +128,8 @@ export default function Financial() {
   };
 
   const estornar = async (i: Installment) => {
+    const pago = Number(i.paid_amount || 0);
+    if (!window.confirm(`Estornar a parcela #${i.installment_number}? O valor já baixado (${BRL(pago)}) volta a ficar em aberto.`)) return;
     await supabase.from('installments').update({
       paid: false,
       paid_date: null,
@@ -263,14 +265,16 @@ export default function Financial() {
                               </button>
                             )
                           )}
-                          {i.paid ? (
+                          {(i.paid || Number(i.paid_amount || 0) > 0) && (
                             <button
                               onClick={() => estornar(i)}
                               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition inline-flex items-center gap-1"
+                              title="Desfaz todas as baixas desta parcela"
                             >
                               <Undo2 size={13} /> Estornar
                             </button>
-                          ) : (
+                          )}
+                          {!i.paid && (
                             <button
                               onClick={() => openBaixa(i)}
                               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition"
