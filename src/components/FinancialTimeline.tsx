@@ -111,7 +111,7 @@ export default function FinancialTimeline() {
       setLoading(true);
       const { data } = await supabase
         .from('installments')
-        .select('due_date, amount, reference_type, paid')
+        .select('due_date, amount, reference_type, paid, paid_date, paid_amount')
         .in('reference_type', ['sale', 'purchase', 'maintenance']);
       setItems((data as Installment[]) ?? []);
       setLoading(false);
@@ -130,16 +130,18 @@ export default function FinancialTimeline() {
     const map = new Map<string, Bucket>();
     // The summary cards (Total a Receber / Total a Pagar / Saldo
     // Projetado) only count what's still OPEN — already-paid
-    // installments don't belong in "how much is still owed". The bars
-    // below keep showing the full historical amount per month
-    // regardless of paid status, since that's a volume-over-time view,
-    // not a "what's outstanding" figure.
+    // installments don't belong in "how much is still owed". In the bars,
+    // open installments sit on their due date at full amount, while paid
+    // ones sit on the date the money actually moved, at the amount that
+    // moved — so a card sale received in advance (antecipação) shows up
+    // once, at the net value, matching the bank statement.
     let totalReceivable = 0;
     let totalPayable = 0;
     for (const i of items) {
-      const d = new Date(i.due_date + 'T00:00:00');
+      const settled = i.paid && i.paid_date;
+      const d = new Date((settled ? i.paid_date! : i.due_date) + 'T00:00:00');
       const key = keyFn(d);
-      const amt = Number(i.amount) || 0;
+      const amt = settled ? Number(i.paid_amount) || 0 : Number(i.amount) || 0;
       if (!map.has(key)) map.set(key, { key, label: labelFn(key), receivable: 0, payable: 0, isToday: key === todayKey });
       const b = map.get(key)!;
       if (i.reference_type === 'sale') {

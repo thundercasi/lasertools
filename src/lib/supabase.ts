@@ -252,6 +252,9 @@ export type Installment = {
   paid: boolean;
   paid_date: string | null;
   paid_amount: number;
+  // Taxa descontada no recebimento (cartão/antecipação) — quitada quando paid_amount + fee_amount >= amount.
+  fee_amount: number;
+  settlement_type: string | null;
   currency: string;
   collection_status: string;
   notified_at: string | null;

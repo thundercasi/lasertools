@@ -134,7 +134,70 @@ export default function Financial() {
       paid: false,
       paid_date: null,
       paid_amount: 0,
+      fee_amount: 0,
+      settlement_type: null,
     }).eq('id', i.id);
+    load();
+  };
+
+  // ===== Recebimento em lote (antecipação de cartão) =====
+  // O financeiro informa o valor que caiu no banco; o sistema divide esse
+  // valor entre as parcelas escolhidas e registra a diferença como taxa.
+  const [lote, setLote] = useState<{ ref: string; customer: string } | null>(null);
+  const [loteSel, setLoteSel] = useState<Set<string>>(new Set());
+  const [loteDate, setLoteDate] = useState(new Date().toISOString().slice(0, 10));
+  const [loteValor, setLoteValor] = useState(0);
+  const [loteSaving, setLoteSaving] = useState(false);
+  const [loteError, setLoteError] = useState('');
+
+  const saldoOf = (i: Installment) => Math.max(Number(i.amount) - Number(i.paid_amount || 0) - Number(i.fee_amount || 0), 0);
+  const loteParcelas = lote ? items.filter((i) => i.reference_id === lote.ref && !i.paid).sort((a, b) => a.installment_number - b.installment_number) : [];
+  const loteBruto = loteParcelas.filter((i) => loteSel.has(i.id)).reduce((s, i) => s + saldoOf(i), 0);
+  const loteTaxa = Math.max(loteBruto - (Number(loteValor) || 0), 0);
+  const lotePct = loteBruto > 0 ? (loteTaxa / loteBruto) * 100 : 0;
+
+  const openLote = (i: Installment) => {
+    const abertas = items.filter((x) => x.reference_id === i.reference_id && !x.paid);
+    setLote({ ref: i.reference_id, customer: i.customer?.name ?? 'cliente' });
+    setLoteSel(new Set(abertas.map((x) => x.id)));
+    setLoteDate(today);
+    setLoteValor(Math.round(abertas.reduce((s, x) => s + saldoOf(x), 0) * 100) / 100);
+    setLoteError('');
+  };
+
+  const toggleLote = (id: string) => setLoteSel((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const confirmLote = async () => {
+    const sel = loteParcelas.filter((i) => loteSel.has(i.id));
+    const recebido = Math.round((Number(loteValor) || 0) * 100) / 100;
+    if (sel.length === 0) { setLoteError('Selecione ao menos uma parcela.'); return; }
+    if (recebido <= 0) { setLoteError('Informe o valor recebido no banco.'); return; }
+    if (recebido > loteBruto + 0.01) { setLoteError(`O valor recebido não pode passar do saldo das parcelas (${BRL(loteBruto)}).`); return; }
+    setLoteSaving(true);
+    setLoteError('');
+    // Divide o valor recebido proporcionalmente ao saldo de cada parcela;
+    // a última parcela absorve os centavos do arredondamento.
+    let restante = recebido;
+    for (let k = 0; k < sel.length; k++) {
+      const i = sel[k];
+      const saldo = saldoOf(i);
+      const parte = k === sel.length - 1 ? restante : Math.round((recebido * saldo / loteBruto) * 100) / 100;
+      restante = Math.round((restante - parte) * 100) / 100;
+      const { error: e } = await supabase.from('installments').update({
+        paid: true,
+        paid_date: loteDate,
+        paid_amount: Math.round((Number(i.paid_amount || 0) + parte) * 100) / 100,
+        fee_amount: Math.round((Number(i.fee_amount || 0) + (saldo - parte)) * 100) / 100,
+        settlement_type: 'Antecipação',
+      }).eq('id', i.id);
+      if (e) { setLoteSaving(false); setLoteError(e.message); load(); return; }
+    }
+    setLoteSaving(false);
+    setLote(null);
     load();
   };
 
@@ -242,6 +305,11 @@ export default function Financial() {
                         {!i.paid && Number(i.paid_amount || 0) > 0 && (
                           <div className="text-xs font-normal text-blue-600">restam {BRL(Number(i.amount) - Number(i.paid_amount || 0))}</div>
                         )}
+                        {Number(i.fee_amount || 0) > 0 && (
+                          <div className="text-xs font-normal text-violet-600" title={`Parcela de ${BRL(i.amount)}`}>
+                            taxa {BRL(i.fee_amount)}{i.settlement_type ? ` · ${i.settlement_type.toLowerCase()}` : ''}
+                          </div>
+                        )}
                       </td>
                       <td className="td text-right">
                         <div className="flex items-center justify-end gap-1.5">
@@ -276,6 +344,15 @@ export default function Financial() {
                           )}
                           {!i.paid && (
                             <button
+                              onClick={() => openLote(i)}
+                              title="Antecipação de cartão: informe o valor que caiu no banco e o sistema calcula a taxa"
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg text-violet-600 hover:bg-violet-50 transition"
+                            >
+                              Receber em lote
+                            </button>
+                          )}
+                          {!i.paid && (
+                            <button
                               onClick={() => openBaixa(i)}
                               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition"
                             >
@@ -292,6 +369,56 @@ export default function Financial() {
           </div>
         )}
       </div>
+
+      {lote && (
+        <Modal title={`Receber em lote — ${lote.customer}`} onClose={() => setLote(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              Para vendas no cartão recebidas com antecipação: marque as parcelas que entraram no depósito e informe o valor que caiu no banco.
+              A diferença fica registrada como taxa, e o cliente não fica devendo.
+            </p>
+            {loteError && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{loteError}</div>}
+            <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">
+              {loteParcelas.map((i) => (
+                <label key={i.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 rounded" checked={loteSel.has(i.id)} onChange={() => toggleLote(i.id)} />
+                  <span className="font-medium text-slate-800">Parcela #{i.installment_number}</span>
+                  <span className="text-slate-400">vence {formatDate(i.due_date)}</span>
+                  <span className="ml-auto font-semibold text-slate-900">{BRL(saldoOf(i))}</span>
+                </label>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Data do depósito">
+                <input type="date" className="input" value={loteDate} onChange={(e) => setLoteDate(e.target.value)} />
+              </Field>
+              <Field label="Valor recebido no banco (R$)">
+                <input type="number" step="0.01" className="input" value={loteValor || ''} onChange={(e) => setLoteValor(Number(e.target.value))} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-xs font-semibold text-slate-400 uppercase">Parcelas</div>
+                <div className="font-semibold text-slate-900">{BRL(loteBruto)}</div>
+              </div>
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-xs font-semibold text-slate-400 uppercase">Recebido</div>
+                <div className="font-semibold text-slate-900">{BRL(Number(loteValor) || 0)}</div>
+              </div>
+              <div className="bg-violet-50 rounded-xl p-3">
+                <div className="text-xs font-semibold text-violet-600 uppercase">Taxa calculada</div>
+                <div className="font-semibold text-violet-700">{BRL(loteTaxa)} <span className="text-xs font-normal">({lotePct.toFixed(2).replace('.', ',')}%)</span></div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button className="btn-secondary" onClick={() => setLote(null)}>Cancelar</button>
+              <button className="btn-primary" disabled={loteSaving} onClick={confirmLote}>
+                {loteSaving ? 'Salvando...' : `Quitar ${loteSel.size} parcela${loteSel.size === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {baixa && (
         <Modal title="Dar baixa na parcela" onClose={() => setBaixa(null)}>
