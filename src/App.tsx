@@ -3,7 +3,7 @@ import logo from './assets/logo.png';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users as UsersIcon,
   Wallet, Boxes, Menu, X, ClipboardList, ListChecks, History, Wrench, Settings as SettingsIcon,
-  LogOut, Loader2, ShieldAlert, KeyRound, Globe, BookOpen,
+  LogOut, Loader2, ShieldAlert, KeyRound, Globe, BookOpen, HandCoins,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
 import { useAuth } from './lib/useAuth';
@@ -27,11 +27,12 @@ import UsersScreen from './components/Users';
 import ChangePassword from './components/ChangePassword';
 import PortalAdmin from './components/PortalAdmin';
 import Portfolio from './components/Portfolio';
+import Loans from './components/Loans';
 
 type ViewId =
   | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases' | 'purchase_suggestions'
   | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance'
-  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin' | 'portfolio';
+  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin' | 'portfolio' | 'loans';
 
 // undefined roles = every role can see it (besides 'sem_papel', which never
 // sees anything — gated separately, before the menu even renders).
@@ -76,6 +77,7 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'financial', label: 'Contas a Receber', icon: Wallet, roles: ['admin', 'financeiro'] },
       { id: 'payables', label: 'Contas a Pagar', icon: Wallet, roles: ['admin', 'financeiro'] },
+      { id: 'loans', label: 'Empréstimos de Sócios', icon: HandCoins, roles: ['admin', 'financeiro'] },
     ],
   },
   {
@@ -162,6 +164,7 @@ export default function App() {
       case 'users': return <UsersScreen myId={session.user.id} />;
       case 'portal_admin': return <PortalAdmin />;
       case 'portfolio': return <Portfolio />;
+      case 'loans': return <Loans />;
     }
   };
 
