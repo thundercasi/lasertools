@@ -157,6 +157,7 @@ export type Sale = {
   customer_id: string | null;
   status: string;
   payment_status: string;
+  payment_method: string | null;
   sale_date: string;
   total_amount: number;
   currency: string;

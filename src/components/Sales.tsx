@@ -6,8 +6,11 @@ import { useSessionState } from '../lib/useSessionState';
 
 const SALE_STATUS = ['Pendente', 'Em andamento', 'Concluída', 'Cancelada'] as const;
 
+// Forma de pagamento combinada com o cliente.
+const SALE_PAYMENT_METHODS = ['PIX', 'Cartão de crédito', 'Cartão de débito', 'Boleto', 'Transferência', 'Dinheiro', 'Troca/Permuta'] as const;
+
 const emptyForm = {
-  code: '', customer_id: '', status: 'Pendente',
+  code: '', customer_id: '', status: 'Pendente', payment_method: '',
   sale_date: new Date().toISOString().slice(0, 10),
   currency: 'BRL', total_amount: 0, installment_count: 1, installment_interval_days: 30,
   first_installment_date: new Date().toISOString().slice(0, 10),
@@ -198,7 +201,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     setEditing(s);
     setViewing(view);
     setForm({
-      code: s.code, customer_id: s.customer_id ?? '', status: s.status,
+      code: s.code, customer_id: s.customer_id ?? '', status: s.status, payment_method: s.payment_method ?? '',
       sale_date: s.sale_date, currency: s.currency, total_amount: Number(s.total_amount) || 0,
       installment_count: s.installment_count, installment_interval_days: s.installment_interval_days,
       first_installment_date: s.first_installment_date ?? s.sale_date,
@@ -278,6 +281,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     const validRows = rows.filter((r) => r.part_id);
     if (validRows.length === 0) return 'Adicione ao menos uma peça à venda.';
     if (!form.customer_id) return 'Selecione um cliente.';
+    if (!form.payment_method) return 'Selecione a forma de pagamento.';
     const missingUnit = validRows.find((r) => {
       const p = allParts.find((x) => x.id === r.part_id);
       return p?.tracked_by_unit && !r.part_unit_id;
@@ -301,6 +305,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
       const payload = {
         customer_id: form.customer_id || null,
         status: form.status,
+        payment_method: form.payment_method || null,
         sale_date: form.sale_date,
         currency: form.currency,
         total_amount: total,
@@ -478,7 +483,10 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                         </td>
                         <td className="td font-medium text-slate-900">{s.customer?.name ?? '—'}</td>
                         <td className="td text-slate-500">{formatDate(s.sale_date)}</td>
-                        <td className="td text-slate-600">{s.installment_count}x</td>
+                        <td className="td text-slate-600">
+                          {s.installment_count}x
+                          {s.payment_method && <div className="text-xs text-slate-400">{s.payment_method}</div>}
+                        </td>
                         <td className="td"><Badge tone={statusTone(s.status)}>{statusLabel(s.status)}</Badge></td>
                         <td className="td">
                           <Badge tone={s.payment_status === 'Concluída' ? 'green' : s.payment_status === 'Parcial' ? 'blue' : 'amber'}>
@@ -587,6 +595,15 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
               <Field label="Status">
                 <select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                   {SALE_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+              <Field label="Forma de pagamento">
+                <select className={inputCls} value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}>
+                  <option value="">— Selecione —</option>
+                  {SALE_PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {form.payment_method && !(SALE_PAYMENT_METHODS as readonly string[]).includes(form.payment_method) && (
+                    <option value={form.payment_method}>{form.payment_method}</option>
+                  )}
                 </select>
               </Field>
             </div>
