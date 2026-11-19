@@ -158,6 +158,9 @@ export type Sale = {
   status: string;
   payment_status: string;
   payment_method: string | null;
+  // Venda gerada por uma Ordem de Serviço: sem itens de estoque, custo do reparo à parte.
+  service_order_id: string | null;
+  service_cost: number;
   sale_date: string;
   total_amount: number;
   currency: string;

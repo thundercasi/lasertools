@@ -58,7 +58,9 @@ export default function Dashboard() {
       const s = saleById.get(si.sale_id);
       return s && s.sale_date >= monthStart && s.sale_date <= monthEnd && s.status !== 'Cancelada';
     })
-    .reduce((sum, si) => sum + Number(si.unit_cost) * Number(si.quantity), 0);
+    .reduce((sum, si) => sum + Number(si.unit_cost) * Number(si.quantity), 0)
+    // Vendas de serviço (OS) guardam o custo do reparo na própria venda.
+    + monthSales.reduce((sum, s) => sum + Number(s.service_cost || 0), 0);
   const monthGrossProfit = monthRevenue - monthCOGS;
 
   // Critical stock

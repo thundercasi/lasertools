@@ -3,7 +3,7 @@ import logo from './assets/logo.png';
 import {
   LayoutDashboard, Package, Truck, ShoppingCart, Receipt, Users as UsersIcon,
   Wallet, Boxes, Menu, X, ClipboardList, ListChecks, History, Wrench, Settings as SettingsIcon,
-  LogOut, Loader2, ShieldAlert, KeyRound, Globe, BookOpen, HandCoins,
+  LogOut, Loader2, ShieldAlert, KeyRound, Globe, BookOpen, HandCoins, Hammer,
 } from 'lucide-react';
 import { useSessionState } from './lib/useSessionState';
 import { useAuth } from './lib/useAuth';
@@ -28,11 +28,12 @@ import ChangePassword from './components/ChangePassword';
 import PortalAdmin from './components/PortalAdmin';
 import Portfolio from './components/Portfolio';
 import Loans from './components/Loans';
+import ServiceOrders from './components/ServiceOrders';
 
 type ViewId =
   | 'dashboard' | 'parts' | 'suppliers' | 'orders' | 'purchases' | 'purchase_suggestions'
   | 'sales' | 'customers' | 'financial' | 'payables' | 'maintenance'
-  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin' | 'portfolio' | 'loans';
+  | 'competition' | 'settings' | 'users' | 'part_history' | 'portal_admin' | 'portfolio' | 'loans' | 'service_orders';
 
 // undefined roles = every role can see it (besides 'sem_papel', which never
 // sees anything — gated separately, before the menu even renders).
@@ -62,6 +63,7 @@ const navGroups: NavGroup[] = [
       { id: 'purchases', label: 'Compras', icon: ShoppingCart, roles: ['admin', 'estoque_compras'] },
       { id: 'purchase_suggestions', label: 'Sugestão de Compras', icon: ListChecks, roles: ['admin', 'estoque_compras'] },
       { id: 'sales', label: 'Vendas', icon: Receipt, roles: ['admin', 'vendedor'] },
+      { id: 'service_orders', label: 'Ordens de Serviço', icon: Hammer, roles: ['admin', 'vendedor', 'estoque_compras'] },
       { id: 'maintenance', label: 'Manutenções', icon: Wrench, roles: ['admin', 'estoque_compras'] },
     ],
   },
@@ -165,6 +167,7 @@ export default function App() {
       case 'portal_admin': return <PortalAdmin />;
       case 'portfolio': return <Portfolio />;
       case 'loans': return <Loans />;
+      case 'service_orders': return <ServiceOrders />;
     }
   };
 

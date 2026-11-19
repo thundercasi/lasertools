@@ -123,7 +123,7 @@ export default function MonthlyResults() {
       twelveMonthsAgo.setDate(1);
       const { data } = await supabase
         .from('sales')
-        .select('id, sale_date, status, total_amount, delivery_fee, delivery_cost, nf_tax, nf_fee, salesperson_commission, card_fee_percent, sale_items(quantity, unit_cost)')
+        .select('id, sale_date, status, total_amount, delivery_fee, delivery_cost, nf_tax, nf_fee, salesperson_commission, card_fee_percent, service_cost, sale_items(quantity, unit_cost)')
         .neq('status', 'Cancelada')
         .gte('sale_date', twelveMonthsAgo.toISOString().slice(0, 10));
       setSales(data ?? []);
@@ -156,7 +156,8 @@ export default function MonthlyResults() {
       // no old installments, no restocking purchases, no unrelated
       // payables — only the direct revenue/cost/fees of that sale.
       const t = Number(s.total_amount) + Number(s.delivery_fee || 0); // Faturamento
-      const cogs = ((s.sale_items ?? []) as any[]).reduce((sum, si) => sum + Number(si.unit_cost) * Number(si.quantity), 0);
+      const cogs = ((s.sale_items ?? []) as any[]).reduce((sum, si) => sum + Number(si.unit_cost) * Number(si.quantity), 0)
+        + Number(s.service_cost || 0); // venda de serviço (OS): custo do reparo
       const lucro = t - cogs; // gross profit — revenue minus the real cost of the parts sold
       const ded = t * (Number(s.nf_tax) + Number(s.nf_fee) + Number(s.salesperson_commission) + Number(s.card_fee_percent)) / 100;
       const resultado = lucro - ded - Number(s.delivery_cost || 0);

@@ -134,6 +134,12 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
         const custMap = new Map((cRes.data as Customer[]).map((c) => [c.id, c]));
         sales.forEach((s) => { s.customer = (s.customer_id && custMap.get(s.customer_id)) || null; });
       }
+      // Vendas de serviço (OS): o custo do reparo fica na própria venda.
+      setCostBySale((prev) => {
+        const next = { ...prev };
+        for (const s of sales) if (Number(s.service_cost) > 0) next[s.id] = (next[s.id] ?? 0) + Number(s.service_cost);
+        return next;
+      });
       setItems(sales);
     } catch (err: any) {
       setError(err?.message ?? 'Falha ao carregar vendas.');
@@ -199,7 +205,8 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
 
   const openEdit = async (s: Sale, view = false) => {
     setEditing(s);
-    setViewing(view);
+    // Venda gerada por OS não tem itens de estoque: só consulta por aqui.
+    setViewing(view || !!s.service_order_id);
     setForm({
       code: s.code, customer_id: s.customer_id ?? '', status: s.status, payment_method: s.payment_method ?? '',
       sale_date: s.sale_date, currency: s.currency, total_amount: Number(s.total_amount) || 0,
@@ -481,7 +488,10 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                         <td className="td text-slate-400 hover:text-slate-700" title="Ver itens" onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }}>
                           {expandedId === s.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </td>
-                        <td className="td font-medium text-slate-900">{s.customer?.name ?? '—'}</td>
+                        <td className="td font-medium text-slate-900">
+                          {s.customer?.name ?? '—'}
+                          {s.service_order_id && <span className="ml-2 align-middle"><Badge tone="violet">Serviço</Badge></span>}
+                        </td>
                         <td className="td text-slate-500">{formatDate(s.sale_date)}</td>
                         <td className="td text-slate-600">
                           {s.installment_count}x
@@ -558,6 +568,12 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
         <Modal title={viewing ? 'Consultar venda' : editing ? 'Editar venda' : 'Nova venda'} onClose={() => setOpen(false)} wide>
           <div className="space-y-4">
             {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+            {editing?.service_order_id && (
+              <div className="text-sm text-violet-700 bg-violet-50 rounded-lg p-3">
+                Venda de serviço, gerada por uma Ordem de Serviço — valor {BRL(Number(editing.total_amount))}, custo do reparo {BRL(Number(editing.service_cost))}.
+                As peças e valores são editados na tela <strong>Ordens de Serviço</strong>; parcelas e baixas, em Contas a Receber.
+              </div>
+            )}
             <fieldset disabled={viewing} className="space-y-4 min-w-0">
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Cliente">
@@ -838,7 +854,11 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
             <Field label="Observações"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
             </fieldset>
             {viewing ? (
-              <ViewEditFooter viewing saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={() => {}} />
+              editing?.service_order_id ? (
+                <div className="flex justify-end pt-2"><button className="btn-primary" onClick={() => setOpen(false)}>Fechar</button></div>
+              ) : (
+                <ViewEditFooter viewing saving={saving} onEdit={() => setViewing(false)} onClose={() => setOpen(false)} onSave={() => {}} />
+              )
             ) : (
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
