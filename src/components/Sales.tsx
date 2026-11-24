@@ -162,6 +162,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     let list = customerFilter ? items.filter((s) => s.customer_id === customerFilter) : items;
     if (q) {
       list = list.filter((s) =>
+        s.code.toLowerCase().includes(q) ||
         s.customer?.name.toLowerCase().includes(q) ||
         s.status.toLowerCase().includes(q)
       );
@@ -444,7 +445,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
         </select>
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input className="input pl-10" placeholder="Buscar por cliente ou status..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="input pl-10" placeholder="Buscar por nº da venda, cliente ou status..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         {(customerFilter || query) && (
           <button className="btn-ghost shrink-0" onClick={() => { setCustomerFilter(''); setQuery(''); }}>
@@ -466,6 +467,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="th w-8"></th>
+                  <th className="th">Venda</th>
                   <th className="th">Cliente</th>
                   <th className="th">Data</th>
                   <th className="th">Parcelas</th>
@@ -488,6 +490,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                         <td className="td text-slate-400 hover:text-slate-700" title="Ver itens" onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }}>
                           {expandedId === s.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </td>
+                        <td className="td font-semibold text-slate-900 whitespace-nowrap">{s.code}</td>
                         <td className="td font-medium text-slate-900">
                           {s.customer?.name ?? '—'}
                           {s.service_order_id && <span className="ml-2 align-middle"><Badge tone="violet">Serviço</Badge></span>}
@@ -515,7 +518,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
                       {expandedId === s.id && (
                         <tr className="bg-slate-50/60">
                           <td></td>
-                          <td colSpan={8} className="px-5 py-3">
+                          <td colSpan={9} className="px-5 py-3">
                             {expandedLoading === s.id ? (
                               <div className="text-xs text-slate-400 py-2">Carregando peças...</div>
                             ) : (expandedItems[s.id]?.length ?? 0) === 0 ? (
