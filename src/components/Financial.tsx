@@ -312,6 +312,11 @@ export default function Financial() {
                       </td>
                       <td className="td">
                         {i.paid ? <Badge tone="green">Pago</Badge> : Number(i.paid_amount || 0) > 0 ? <Badge tone="blue">Parcial</Badge> : overdue ? <Badge tone="red">Atrasado</Badge> : dueToday ? <Badge tone="amber">Vence hoje</Badge> : <Badge tone="blue">Pendente</Badge>}
+                        {i.paid_date && Number(i.paid_amount || 0) > 0 && (
+                          <div className="text-xs text-slate-400 mt-1 whitespace-nowrap">
+                            {i.paid ? 'baixa em' : 'última baixa'} {formatDate(i.paid_date)}
+                          </div>
+                        )}
                       </td>
                       <td className="td text-right">
                         <div className="font-semibold text-slate-900">{BRL(i.paid ? i.paid_amount : i.amount)}</div>
