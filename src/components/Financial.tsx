@@ -84,6 +84,7 @@ export default function Financial() {
     if (q) {
       list = list.filter((i) =>
         (i.customer?.name ?? '').toLowerCase().includes(q) ||
+        (i.sale?.code ?? '').toLowerCase().includes(q) ||
         String(i.installment_number).includes(q)
       );
     }
@@ -260,7 +261,7 @@ export default function Financial() {
         </div>
         <div className="relative sm:ml-auto sm:w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input className="input pl-10" placeholder="Buscar cliente..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="input pl-10" placeholder="Buscar cliente ou venda..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </div>
 
@@ -275,6 +276,7 @@ export default function Financial() {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="th">Cliente</th>
+                  <th className="th">Venda</th>
                   <th className="th">Vencimento</th>
                   <th className="th">Parcela</th>
                   <th className="th">Status</th>
@@ -289,6 +291,14 @@ export default function Financial() {
                   return (
                     <tr key={i.id} className="hover:bg-slate-50/50 transition">
                       <td className="td font-medium text-slate-900">{i.customer?.name ?? '—'}</td>
+                      <td className="td whitespace-nowrap">
+                        {i.sale ? (
+                          <>
+                            <div className="font-medium text-slate-800">{i.sale.code}</div>
+                            <div className="text-xs text-slate-400">total {BRL(Number(i.sale.total_amount) + Number(i.sale.delivery_fee || 0))}</div>
+                          </>
+                        ) : '—'}
+                      </td>
                       <td className="td text-slate-500">
                         <div className="flex items-center gap-1.5">
                           {formatDate(i.due_date)}
@@ -296,7 +306,10 @@ export default function Financial() {
                           {overdue && <span className="text-xs font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">atrasada</span>}
                         </div>
                       </td>
-                      <td className="td text-slate-600">#{i.installment_number}</td>
+                      <td className="td text-slate-600 whitespace-nowrap">
+                        #{i.installment_number}
+                        {i.sale?.installment_count ? <span className="text-xs text-slate-400"> de {i.sale.installment_count}</span> : null}
+                      </td>
                       <td className="td">
                         {i.paid ? <Badge tone="green">Pago</Badge> : Number(i.paid_amount || 0) > 0 ? <Badge tone="blue">Parcial</Badge> : overdue ? <Badge tone="red">Atrasado</Badge> : dueToday ? <Badge tone="amber">Vence hoje</Badge> : <Badge tone="blue">Pendente</Badge>}
                       </td>
