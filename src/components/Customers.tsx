@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Users, Search, Building, KeySquare } from 'lucide-react';
-import { supabase, type Customer } from '../lib/supabase';
+import { Plus, Pencil, Trash2, Users, Search, Building, KeySquare, Layers, X, Check } from 'lucide-react';
+import { supabase, type Customer, type CustomerGroup } from '../lib/supabase';
 import { Modal, Field, EmptyState, PageHeader, ConfirmDelete, ViewEditFooter } from './ui';
 import PortalAccess from './PortalAccess';
 
@@ -8,6 +8,7 @@ const empty = {
   name: '', contact_name: '', email: '', phone: '', document: '',
   city: '', state: '', notes: '',
   cep: '', address: '', address_number: '', address_complement: '', neighborhood: '',
+  group_id: '',
 };
 
 const inputCls = 'input';
@@ -30,12 +31,33 @@ export default function Customers({
   const [portalFor, setPortalFor] = useState<Customer | null>(null);
   // Clique na linha abre em modo consulta (campos travados); o lápis abre já editando.
   const [viewing, setViewing] = useState(false);
+  const [groups, setGroups] = useState<CustomerGroup[]>([]);
+  const [groupFilter, setGroupFilter] = useState('');
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  // Criação rápida de grupo direto no formulário do cliente.
+  const [newGroupName, setNewGroupName] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('customers').select('*').order('name');
-    if (error) { setError(error.message); } else { setItems(data as Customer[]); }
+    const [cRes, gRes] = await Promise.all([
+      supabase.from('customers').select('*').order('name'),
+      supabase.from('customer_groups').select('*').order('name'),
+    ]);
+    if (cRes.error) { setError(cRes.error.message); } else { setItems(cRes.data as Customer[]); }
+    if (!gRes.error) setGroups(gRes.data as CustomerGroup[]);
     setLoading(false);
+  };
+
+  const groupName = (id: string | null) => groups.find((g) => g.id === id)?.name ?? '';
+
+  const createGroupInline = async () => {
+    const name = (newGroupName ?? '').trim();
+    if (!name) return;
+    const { data, error: err } = await supabase.from('customer_groups').insert({ name }).select().single();
+    if (err) { setError(err.code === '23505' ? 'Já existe um grupo com esse nome.' : err.message); return; }
+    setGroups((gs) => [...gs, data as CustomerGroup].sort((a, b) => a.name.localeCompare(b.name)));
+    setForm((f) => ({ ...f, group_id: (data as CustomerGroup).id }));
+    setNewGroupName(null);
   };
 
   useEffect(() => { load(); }, []);
@@ -52,14 +74,17 @@ export default function Customers({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((c) =>
+    const base = groupFilter === '__none' ? items.filter((c) => !c.group_id)
+      : groupFilter ? items.filter((c) => c.group_id === groupFilter) : items;
+    if (!q) return base;
+    return base.filter((c) =>
       c.name.toLowerCase().includes(q) ||
+      groupName(c.group_id).toLowerCase().includes(q) ||
       (c.contact_name ?? '').toLowerCase().includes(q) ||
       (c.email ?? '').toLowerCase().includes(q) ||
       (c.city ?? '').toLowerCase().includes(q)
     );
-  }, [items, query]);
+  }, [items, query, groupFilter, groups]);
 
   const [cepLoading, setCepLoading] = useState(false);
   // Busca o endereço pelo CEP (ViaCEP) e preenche só os campos ainda vazios.
@@ -83,7 +108,7 @@ export default function Customers({
     setCepLoading(false);
   };
 
-  const openNew = () => { setEditing(null); setViewing(false); setForm(empty); setError(''); setOpen(true); };
+  const openNew = () => { setEditing(null); setViewing(false); setForm({ ...empty, group_id: groupFilter && groupFilter !== '__none' ? groupFilter : '' }); setNewGroupName(null); setError(''); setOpen(true); };
   const openEdit = (c: Customer, view = false) => {
     setEditing(c);
     setViewing(view);
@@ -93,7 +118,9 @@ export default function Customers({
       state: c.state ?? '', notes: c.notes ?? '',
       cep: c.cep ?? '', address: c.address ?? '', address_number: c.address_number ?? '',
       address_complement: c.address_complement ?? '', neighborhood: c.neighborhood ?? '',
+      group_id: c.group_id ?? '',
     });
+    setNewGroupName(null);
     setError(''); setOpen(true);
   };
 
@@ -115,6 +142,7 @@ export default function Customers({
       address_complement: form.address_complement.trim() || null,
       neighborhood: form.neighborhood.trim() || null,
       notes: form.notes || null,
+      group_id: form.group_id || null,
     };
     let err;
     if (editing) {
@@ -138,11 +166,23 @@ export default function Customers({
       <PageHeader
         title="Clientes"
         subtitle={`${items.length} clientes cadastrados`}
-        action={<button className="btn-primary" onClick={openNew}><Plus size={16} /> Novo cliente</button>}
+        action={
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={() => setGroupsOpen(true)}><Layers size={16} /> Grupos</button>
+            <button className="btn-primary" onClick={openNew}><Plus size={16} /> Novo cliente</button>
+          </div>
+        }
       />
 
-      <div className="card p-4 mb-4">
-        <div className="relative">
+      <div className="card p-4 mb-4 flex flex-col sm:flex-row gap-3">
+        <select className="input sm:w-64" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+          <option value="">Todos os grupos</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>{g.name} ({items.filter((c) => c.group_id === g.id).length})</option>
+          ))}
+          <option value="__none">Sem grupo ({items.filter((c) => !c.group_id).length})</option>
+        </select>
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input className="input pl-10" placeholder="Buscar cliente..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
@@ -159,6 +199,7 @@ export default function Customers({
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="th">Nome</th>
+                  <th className="th">Grupo</th>
                   <th className="th">Contato</th>
                   <th className="th">E-mail</th>
                   <th className="th">Telefone</th>
@@ -177,6 +218,7 @@ export default function Customers({
                         <span className="font-medium text-slate-900">{c.name}</span>
                       </div>
                     </td>
+                    <td className="td">{c.group_id ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 text-violet-700 text-xs font-medium"><Layers size={12} />{groupName(c.group_id)}</span> : <span className="text-slate-400">—</span>}</td>
                     <td className="td text-slate-600">{c.contact_name || '—'}</td>
                     <td className="td text-slate-600">{c.email || '—'}</td>
                     <td className="td text-slate-500">{c.phone || '—'}</td>
@@ -205,6 +247,24 @@ export default function Customers({
             <fieldset disabled={viewing} className="space-y-4 min-w-0">
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nome"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+              <Field label="Grupo" hint="agrupa unidades da mesma rede/dono">
+                {newGroupName === null ? (
+                  <select className={inputCls} value={form.group_id}
+                    onChange={(e) => e.target.value === '__new' ? setNewGroupName('') : setForm({ ...form, group_id: e.target.value })}>
+                    <option value="">Sem grupo</option>
+                    {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    <option value="__new">+ Novo grupo…</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2">
+                    <input className={inputCls} autoFocus placeholder="Nome do grupo" value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createGroupInline(); } if (e.key === 'Escape') setNewGroupName(null); }} />
+                    <button type="button" className="icon-btn" title="Criar grupo" onClick={createGroupInline}><Check size={16} /></button>
+                    <button type="button" className="icon-btn" title="Cancelar" onClick={() => setNewGroupName(null)}><X size={16} /></button>
+                  </div>
+                )}
+              </Field>
               <Field label="Contato"><input className={inputCls} value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} /></Field>
               <Field label="E-mail"><input className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
               <Field label="Telefone"><input className={inputCls} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
@@ -231,6 +291,10 @@ export default function Customers({
         </Modal>
       )}
 
+      {groupsOpen && (
+        <CustomerGroupsManager groups={groups} customers={items} onClose={() => setGroupsOpen(false)} onChanged={load} />
+      )}
+
       {portalFor && <PortalAccess customer={portalFor} onClose={() => setPortalFor(null)} />}
 
       {deleteId && (
@@ -242,5 +306,98 @@ export default function Customers({
         </Modal>
       )}
     </div>
+  );
+}
+
+function CustomerGroupsManager({ groups, customers, onClose, onChanged }: {
+  groups: CustomerGroup[];
+  customers: Customer[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [deleteGroup, setDeleteGroup] = useState<CustomerGroup | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const count = (id: string) => customers.filter((c) => c.group_id === id).length;
+  const msg = (e: { code?: string; message: string }) => e.code === '23505' ? 'Já existe um grupo com esse nome.' : e.message;
+
+  const add = async () => {
+    if (!name.trim()) return;
+    setBusy(true); setError('');
+    const { error: err } = await supabase.from('customer_groups').insert({ name: name.trim() });
+    setBusy(false);
+    if (err) { setError(msg(err)); return; }
+    setName(''); onChanged();
+  };
+
+  const rename = async () => {
+    if (!editId || !editName.trim()) return;
+    setBusy(true); setError('');
+    const { error: err } = await supabase.from('customer_groups').update({ name: editName.trim() }).eq('id', editId);
+    setBusy(false);
+    if (err) { setError(msg(err)); return; }
+    setEditId(null); onChanged();
+  };
+
+  const remove = async () => {
+    if (!deleteGroup) return;
+    const { error: err } = await supabase.from('customer_groups').delete().eq('id', deleteGroup.id);
+    if (err) setError(err.message);
+    setDeleteGroup(null); onChanged();
+  };
+
+  return (
+    <Modal title="Grupos de clientes" onClose={onClose}>
+      <div className="space-y-4">
+        {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>}
+        <div className="flex gap-2">
+          <input className="input" placeholder="Novo grupo (ex.: Espaçolaser)" value={name}
+            onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
+          <button className="btn-primary shrink-0" disabled={busy || !name.trim()} onClick={add}><Plus size={16} /> Adicionar</button>
+        </div>
+        {groups.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-4">Nenhum grupo cadastrado.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+            {groups.map((g) => (
+              <li key={g.id} className="flex items-center gap-2 px-3 py-2">
+                {editId === g.id ? (
+                  <>
+                    <input className="input" autoFocus value={editName} onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') rename(); if (e.key === 'Escape') setEditId(null); }} />
+                    <button className="icon-btn" title="Salvar" onClick={rename}><Check size={15} /></button>
+                    <button className="icon-btn" title="Cancelar" onClick={() => setEditId(null)}><X size={15} /></button>
+                  </>
+                ) : (
+                  <>
+                    <Layers size={15} className="text-violet-500 shrink-0" />
+                    <span className="flex-1 font-medium text-slate-800">{g.name}</span>
+                    <span className="text-xs text-slate-500">{count(g.id)} cliente(s)</span>
+                    <button className="icon-btn" title="Renomear" onClick={() => { setEditId(g.id); setEditName(g.name); }}><Pencil size={15} /></button>
+                    <button className="icon-btn hover:text-red-600" title="Excluir" onClick={() => setDeleteGroup(g)}><Trash2 size={15} /></button>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {deleteGroup && (
+          <div className="border border-red-200 bg-red-50 rounded-lg p-3 text-sm">
+            <p className="text-red-700 mb-2">
+              Excluir o grupo <b>{deleteGroup.name}</b>?{count(deleteGroup.id) > 0 && ` Os ${count(deleteGroup.id)} cliente(s) dele ficam sem grupo (não são excluídos).`}
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-ghost" onClick={() => setDeleteGroup(null)}>Cancelar</button>
+              <button className="btn-primary bg-red-600 hover:bg-red-700" onClick={remove}>Excluir</button>
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end"><button className="btn-secondary" onClick={onClose}>Fechar</button></div>
+      </div>
+    </Modal>
   );
 }

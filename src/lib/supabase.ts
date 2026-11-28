@@ -82,6 +82,14 @@ export type Customer = {
   neighborhood: string | null;
   cep: string | null;
   notes: string | null;
+  group_id: string | null;
+  created_at: string;
+};
+
+export type CustomerGroup = {
+  id: string;
+  name: string;
+  notes: string | null;
   created_at: string;
 };
 
