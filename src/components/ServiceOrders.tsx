@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Wrench, Search, Copy, X, Receipt, ExternalLink } from 'lucide-react';
 import { supabase, BRL, formatDate, type Customer, type Part, type Supplier } from '../lib/supabase';
+import CustomerPicker from './CustomerPicker';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ViewEditFooter } from './ui';
 
 // Ordens de Serviço: peças do cliente que entram para reparo. Cada OS tem
@@ -366,10 +367,11 @@ export default function ServiceOrders() {
             <fieldset disabled={viewing} className="space-y-5 min-w-0">
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="Cliente">
-                  <select className={inputCls} value={header.customer_id} onChange={(e) => setHeader({ ...header, customer_id: e.target.value })}>
-                    <option value="">— Selecione —</option>
-                    {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <CustomerPicker
+                    customers={customers}
+                    value={header.customer_id}
+                    onChange={(id) => setHeader({ ...header, customer_id: id })}
+                  />
                 </Field>
                 <Field label="Status">
                   <select className={inputCls} value={header.status} onChange={(e) => setHeader({ ...header, status: e.target.value as OsStatus })}>

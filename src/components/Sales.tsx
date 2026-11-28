@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { Plus, Pencil, Trash2, Receipt, Search, Paperclip, FileText, X, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase, type Sale, type Customer, type SaleFile, type SaleItem, type Part, type PartUnit, type PartStock, BRL, formatDate } from '../lib/supabase';
+import CustomerPicker from './CustomerPicker';
 import { Modal, Field, Badge, EmptyState, PageHeader, ConfirmDelete, ConfirmFinancialSync, statusTone, ViewEditFooter } from './ui';
 import { useSessionState } from '../lib/useSessionState';
 
@@ -34,7 +35,6 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
   const [query, setQuery] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
-  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Sale | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -86,7 +86,6 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     setLoading(true);
     setError('');
     try {
-      supabase.from('customer_groups').select('id, name').order('name').then(({ data }) => setGroups((data as any[]) ?? []));
       const [cRes, pRes, piRes, siRes, unitsRes, stockRes, cpRes] = await Promise.all([
         supabase.from('customers').select('*').order('name'),
         supabase.from('parts').select('*').order('name'),
@@ -164,7 +163,7 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
     const q = query.trim().toLowerCase();
     let list = customerFilter ? items.filter((s) => s.customer_id === customerFilter) : items;
     if (groupFilter) {
-      const ids = new Set(customers.filter((c) => c.group_id === groupFilter).map((c) => c.id));
+      const ids = new Set(customers.filter((c) => groupFilter === '__none' ? !c.group_id : c.group_id === groupFilter).map((c) => c.id));
       list = list.filter((s) => s.customer_id && ids.has(s.customer_id));
     }
     if (q) {
@@ -444,18 +443,16 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
       />
 
       <div className="card p-4 mb-4 flex flex-col sm:flex-row gap-3">
-        {groups.length > 0 && (
-          <select className="input sm:w-56" value={groupFilter} onChange={(e) => { setGroupFilter(e.target.value); setCustomerFilter(''); }}>
-            <option value="">Todos os grupos</option>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        )}
-        <select className="input sm:w-80" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)}>
-          <option value="">{groupFilter ? 'Todos os clientes do grupo' : 'Todos os clientes'}</option>
-          {customersWithSales.filter((c) => !groupFilter || c.group_id === groupFilter).map((c) => (
-            <option key={c.id} value={c.id}>{c.name} ({c.salesCount})</option>
-          ))}
-        </select>
+        <CustomerPicker
+          className="sm:w-[28rem]"
+          customers={customersWithSales}
+          value={customerFilter}
+          onChange={setCustomerFilter}
+          group={groupFilter}
+          onGroupChange={setGroupFilter}
+          emptyLabel={groupFilter ? 'Todos os clientes do grupo' : 'Todos os clientes'}
+          label={(c) => `${c.name} (${(c as typeof customersWithSales[number]).salesCount})`}
+        />
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input className="input pl-10" placeholder="Buscar por nº da venda, cliente ou status..." value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -593,18 +590,12 @@ export default function Sales({ onNewCustomer }: { onNewCustomer?: () => void } 
             <fieldset disabled={viewing} className="space-y-4 min-w-0">
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Cliente">
-                <select
-                  className={inputCls}
+                <CustomerPicker
+                  customers={customers}
                   value={form.customer_id}
-                  onChange={(e) => {
-                    if (e.target.value === '__new__') { onNewCustomer?.(); return; }
-                    setForm({ ...form, customer_id: e.target.value });
-                  }}
-                >
-                  <option value="">— Selecione —</option>
-                  {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  {onNewCustomer && <option value="__new__">+ Novo cliente...</option>}
-                </select>
+                  onChange={(id) => setForm({ ...form, customer_id: id })}
+                  onNewCustomer={onNewCustomer}
+                />
               </Field>
               <Field label="Data">
                 <input

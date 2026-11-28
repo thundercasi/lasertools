@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import logo from '../assets/logo-full.png';
 import { supabase, BRL, type Customer, type Part } from '../lib/supabase';
+import CustomerPicker from './CustomerPicker';
 import { useUsdRate } from '../lib/useUsdRate';
 import { Field, PageHeader } from './ui';
 
@@ -445,10 +446,12 @@ export default function Orders() {
           </h3>
           <div className="mb-4 sm:w-2/3">
             <Field label="Cliente do cadastro" hint="preenche nome, documento e endereço — dá para ajustar depois">
-              <select className={inputCls} value={customerPick} onChange={(e) => pickCustomer(e.target.value)}>
-                <option value="">— Selecionar cliente cadastrado (ou digite abaixo) —</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <CustomerPicker
+                customers={customers}
+                value={customerPick}
+                onChange={pickCustomer}
+                placeholder="— Selecionar cliente cadastrado (ou digite abaixo) —"
+              />
             </Field>
           </div>
           <div className="grid sm:grid-cols-3 gap-4">

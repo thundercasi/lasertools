@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Users, Search, Building, KeySquare, Layers, X, Ch
 import { supabase, type Customer, type CustomerGroup } from '../lib/supabase';
 import { Modal, Field, EmptyState, PageHeader, ConfirmDelete, ViewEditFooter } from './ui';
 import PortalAccess from './PortalAccess';
+import { invalidateCustomerGroups } from './CustomerPicker';
 
 const empty = {
   name: '', contact_name: '', email: '', phone: '', document: '',
@@ -39,6 +40,7 @@ export default function Customers({
 
   const load = async () => {
     setLoading(true);
+    invalidateCustomerGroups();
     const [cRes, gRes] = await Promise.all([
       supabase.from('customers').select('*').order('name'),
       supabase.from('customer_groups').select('*').order('name'),
@@ -55,6 +57,7 @@ export default function Customers({
     if (!name) return;
     const { data, error: err } = await supabase.from('customer_groups').insert({ name }).select().single();
     if (err) { setError(err.code === '23505' ? 'Já existe um grupo com esse nome.' : err.message); return; }
+    invalidateCustomerGroups();
     setGroups((gs) => [...gs, data as CustomerGroup].sort((a, b) => a.name.localeCompare(b.name)));
     setForm((f) => ({ ...f, group_id: (data as CustomerGroup).id }));
     setNewGroupName(null);
